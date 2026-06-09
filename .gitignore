@@ -51,3 +51,9 @@ desktop.ini
 *-blx.bib
 sn-article.tex
 sn-article_old.tex
+
+echo "*.ERR" >> .gitignore
+git rm --cached rtest_symcelmech.ERR
+git add .gitignore
+git commit -m "chore: ignore Maxima test error logs"
+git push origin main
