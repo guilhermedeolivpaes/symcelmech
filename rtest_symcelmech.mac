@@ -1,0 +1,207 @@
+/* rtest_symcelmech.mac */
+/* regression test suite for the symcelmech package */
+
+(load("symcelmech.mac"), 'done);
+'done$
+
+/* ============================================================================
+   test group 1: elliptic expansions (celmechseries)
+   ============================================================================ */
+
+/* cos(f) series at order 2 should recover the classical expansion */
+ratdisrep(get_cos_f_series(0, M, e, E));
+cos(M)$
+
+/* sin(f) series at order 0 is simply sin(M) */
+ratdisrep(get_sin_f_series(0, M, e, E));
+sin(M)$
+
+/* r/a series at order 0 is 1 */
+subst(e = 0, ratdisrep(get_r_over_a_kepler_series(1, M, e, E)));
+1$
+
+/* ============================================================================
+   test group 2: analytical geometry (analyticalfunctions)
+   ============================================================================ */
+
+/* exact radial distance at f=0 gives periapsis */
+r_two_body_exact(e, a, 0);
+a*(1 - e^2)/(1 + e)$
+
+/* exact radial distance at f=pi gives apoapsis */
+r_two_body_exact(e, a, %pi);
+a*(1 - e^2)/(1 - e)$
+
+/* jacobian dM/df at e=0 is 1 (circular orbit) */
+subst(e = 0, dM_f(e, f));
+1$
+
+/* ============================================================================
+   test group 3: potential derivation (derivepotential)
+   ============================================================================ */
+
+/* J2 zonal potential should have the correct structure */
+(U2: derive_zonal_potential(2, mu, r, f, a, e, i, g, R, false),
+ freeof(j3, U2));
+true$
+
+/* J2 potential should contain j2 */
+(U2: derive_zonal_potential(2, mu, r, f, a, e, i, g, R, false),
+ not freeof(j2, U2));
+true$
+
+/* J3 zonal potential should contain j3 */
+(U3: derive_zonal_potential(3, mu, r, f, a, e, i, g, R, false),
+ not freeof(j3, U3));
+true$
+
+/* compact mode should introduce k_j2 */
+(U2c: derive_zonal_potential(2, mu, r, f, a, e, i, g, R, true),
+ not freeof(k_j2, U2c));
+true$
+
+/* inertial vector should be a unit vector (norm = 1) at e=0, circular orbit */
+(v: get_inertial_vector(f, 0, 0, 0),
+ trigsimp(v[1]^2 + v[2]^2 + v[3]^2));
+1$
+
+/* ============================================================================
+   test group 4: averaging and hansen coefficients (average)
+   ============================================================================ */
+
+/* hansen X0(1,0) = 1 + e^2/2 */
+hansen_x0_pos_calc[1, 0, e];
+1 + e^2/2$
+
+/* hansen X0(2,0) = 1 + 3*e^2/2 */
+hansen_x0_pos_calc[2, 0, e];
+1 + 3*e^2/2$
+
+/* hansen X0(1,1) = -3*e/2 */
+hansen_x0_pos_calc[1, 1, e];
+-3*e/2$
+
+/* map_average: constant expression is entirely secular */
+map_average(42, f);
+[42, 0]$
+
+/* map_average: cos(f) is entirely periodic */
+map_average(cos(f), f);
+[0, cos(f)]$
+
+/* map_average: sum with mixed terms */
+map_average(A + B*cos(f), f);
+[A, B*cos(f)]$
+
+/* ============================================================================
+   test group 5: algebraic utilities (algebraicutils)
+   ============================================================================ */
+
+/* chop_series removes small coefficients */
+chop_series(1e-20*x + 3*y, 1e-15);
+3*y$
+
+/* chop_series preserves large coefficients */
+chop_series(5*x + 3*y, 1e-15);
+5*x + 3*y$
+
+/* coeff_of_term extracts the number from a product */
+coeff_of_term(7*x*y);
+7$
+
+/* coeff_of_term of a pure number */
+coeff_of_term(42);
+42$
+
+/* deatomize_parameters returns a list */
+listp(deatomize_parameters());
+true$
+
+/* ============================================================================
+   test group 6: poisson brackets (analyticalfunctions)
+   ============================================================================ */
+
+/* pb_series: bracket of a function with itself is zero */
+pb_series(L^2, L^2, [l, g, h, L, G, H]);
+0$
+
+/* pb_series: {l, L} = 1 (canonical pair) */
+pb_series(l, L, [l, g, h, L, G, H]);
+1$
+
+/* pb_series: {g, G} = 1 */
+pb_series(g, G, [l, g, h, L, G, H]);
+1$
+
+/* pb_series: {h, H} = 1 */
+pb_series(h, H, [l, g, h, L, G, H]);
+1$
+
+/* pb_series: antisymmetry {L, l} = -1 */
+pb_series(L, l, [l, g, h, L, G, H]);
+-1$
+
+/* pb_series: non-conjugate pair is zero */
+pb_series(l, G, [l, g, h, L, G, H]);
+0$
+
+/* ============================================================================
+   test group 7: planetary equations (planetaryequations)
+   ============================================================================ */
+
+/* hamilton_equations returns 2n equations */
+(eqs: hamilton_equations(H_test, [L, G, H], [l, g, h], t),
+ length(eqs));
+6$
+
+/* lagrange_planetary_equations returns 6 equations */
+(eqs: lagrange_planetary_equations(R_pot, a, e, i, h, g, M, n),
+ length(eqs));
+6$
+
+/* gauss_planetary_equations returns 6 equations */
+(eqs: gauss_planetary_equations(a_dr, a_dt, a_dh, a, e, i, h, g, f, n),
+ length(eqs));
+6$
+
+/* ============================================================================
+   test group 8: astrodata
+   ============================================================================ */
+
+/* earth parameters should be a non-empty list */
+(params: get_astro_params("Earth"),
+ listp(params) and length(params) > 0);
+true$
+
+/* moon parameters should contain j2 */
+(params: get_astro_params("Moon"),
+ not freeof(j2, params));
+true$
+
+/* case insensitivity */
+(params: get_astro_params("earth"),
+ listp(params) and length(params) > 0);
+true$
+
+/* unknown body returns empty list */
+get_astro_params("Pluto");
+[]$
+
+/* ============================================================================
+   test group 9: generating function quadrature
+   ============================================================================ */
+
+/* integral of cos(f) should be sin(f) */
+generating_function_quadrature(cos(f), f);
+sin(f)$
+
+/* integral of sin(f) should be -cos(f) */
+generating_function_quadrature(sin(f), f);
+-cos(f)$
+
+/* integral of cos(2*f) should be sin(2*f)/2 */
+generating_function_quadrature(cos(2*f), f);
+sin(2*f)/2$
+
+'done;
+'done$
