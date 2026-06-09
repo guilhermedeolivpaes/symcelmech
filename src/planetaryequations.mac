@@ -1,0 +1,497 @@
+/* planetaryequations.mac */
+
+suppress_trace_warnings: true$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/*--- global package configurations --- */
+
+/* --------------------------------------------------------------------------
+ * implementation note: global variables vs. _symb arguments
+ * --------------------------------------------------------------------------
+ *
+ * the 'declare' and 'assume' lines above define the properties
+ * (e.g., 'real', 'a>0') for the *standard global symbols* ('a', 'e', 'i', etc.).
+ *
+ * the functions of the package (like 'lagrange_planetary_equations') use
+ * the '_symb' convention (e.g., 'a_symb', 'e_symb') in their *arguments*
+ * to be modular and work with any symbol.
+ *
+ * when to use:
+ * when calling the function with standard symbols, like:
+ * >> lagrange_planetary_equations(r_j2, a, e, i, omega, omega, m, n)
+ *
+ * maxima passes the symbol 'a' (which it knows is > 0) to the argument 'a_symb'.
+ *
+ * this global configuration is correct and should not be changed to '_symb'.
+ *
+ * -------------------------------------------------------------------------- */
+
+/* declares that variables belong to the set of real numbers. */
+
+declare([a, e, i, Omega, omega, M, n], real)$
+
+/* adds restrictions on the range of values for integration and simplification. */
+
+assume(a>0, e>=0, e<1, i>=0, i<=%pi)$
+
+depends([e], [L, G])$
+depends(sin_i, [G, H])$
+depends(cos_i, [G, H])$
+
+/* d(e)/dl */
+gradef(e, L, (1 - e^2) / (L * e))$
+
+/* d(e)/dg */
+gradef(e, G, -G / (L^2 * e))$
+
+/* d(sin_i)/dg */
+gradef(sin_i, G, ( H^2) / (G^3 * sin_i))$
+/* d(sin_i)/dh */
+gradef(sin_i, H, (-H) / (G^2 * sin_i))$
+
+/* d(cos_i)/dg */
+gradef(cos_i, G, -H/(G^2))$
+/* d(cos_i)/dh */
+gradef(cos_i, H, 1/G)$
+
+/* --------------------------------------------------------------------------
+ FUNCTION: hamilton_equations(f, momentavars, coordvars, t)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * extracts hamiltons canonical equations from a hamiltonian f,
+ * automatically generating the rates of change of generalized coordinates
+ * and conjugate momenta.
+ *
+ * the function is completely generic and independent of the chosen set of
+ * canonical variables: delaunay (l,g,h,l,g,h), poincare, whittaker,
+ * or any other canonical pair (q,p).
+ *
+ * arguments:
+ * f           - [symbolic expression] the hamiltonian of the system.
+ * momentavars - [list] list of conjugate momenta [p1, p2, ..., pn].
+ * coordvars   - [list] list of generalized coordinates [q1, q2, ..., qn].
+ * t           - [symbol] independent variable (time).
+ *
+ * return:
+ * [list] list with 2n differential equations in the form:
+ *         [dq1/dt = df/dp1, ..., dqn/dt = df/dpn,
+ *          dp1/dt = -df/dq1, ..., dpn/dt = -df/dqn]
+ *
+ * usage examples:
+ *   delaunay:  hamilton_equations(h, [l,g,h], [l,g,h], t)
+ *   poincare:  hamilton_equations(h_p, [x1,x2,x3], [y1,y2,y3], t)
+ *   extended:  hamilton_equations(h, [l,g,h,t], [l,g,h,tau], t)
+ *
+ * reference:
+ * 
+ * 
+ *
+ * -------------------------------------------------------------------------- */
+hamilton_equations(F, momentaVars, coordVars, t) := block(
+    [n, eqs_q, eqs_p],
+    n : length(coordVars),
+
+    /* 1. coordinates: dq/dt = dh/dp */
+    eqs_q : makelist('diff(coordVars[i], t) = diff(F, momentaVars[i]), i, 1, n),
+
+    /* 2. momenta: dp/dt = -dh/dq */
+    eqs_p : makelist('diff(momentaVars[i], t) = -diff(F, coordVars[i]), i, 1, n),
+
+    return(append(eqs_q, eqs_p))
+)$
+
+/* --------------------------------------------------------------------------
+ FUNCTION: delaunay_to_poincare(expr)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * applies the canonical transformation from delaunay (l,g,h,l,g,h) to the
+ * non-singular poincare variables (y1,y2,y3,x1,x2,x3), removing
+ * singularities at e=0 and i=0.
+ *
+ * the transformation is defined by:
+ *
+ *   x1 = l,                                y1 = l + g + h,
+ *   x2 = sqrt(2) * sqrt(l-g) * cos(g+h),   y2 = -sqrt(2) * sqrt(l-g) * sin(g+h),
+ *   x3 = sqrt(2) * sqrt(g-h) * cos(h),     y3 = -sqrt(2) * sqrt(g-h) * sin(h).
+ *
+ * arguments:
+ * expr - [symbolic expression] expression in delaunay variables
+ *        (l, g, h, l, g, h).
+ *
+ * return:
+ * [expression] the same expression converted to poincare variables
+ *             (x1, x2, x3, y1, y2, y3).
+ *
+ * reference:
+ * - ferraz-mello, s. (2007). canonical perturbation theories: degenerate 
+ *   systems and resonance. springer. eq. 7.7.
+ * - lara, m. (2010). hamiltonian perturbation solutions for spacecraft orbit prediction. eq. 6.25.
+ * - morbidelli, a. (2002). modern celestial mechanics-aspects of solar system dynamics. eqs. 1.76 and 1.78 
+ *
+ * -------------------------------------------------------------------------- */
+delaunay_to_poincare(expr) := block(
+    [rules, result],
+
+    /* inverse transformation: (x,y) -> (l,g,h,l,g,h)
+       solving (6.25) for delaunay variables:
+       
+       l = x1
+       g = x1 - (x2^2 + y2^2)/2
+       h = x1 - (x2^2 + y2^2)/2 - (x3^2 + y3^2)/2
+       
+       g + h = atan2(-y2, x2)
+       h     = atan2(-y3, x3)
+       g     = atan2(-y2, x2) - atan2(-y3, x3)
+       l     = y1 - atan2(-y2, x2)
+    */
+    rules : [
+        L = X1,
+        G = X1 - (X2^2 + y2^2)/2,
+        H = X1 - (X2^2 + y2^2)/2 - (X3^2 + y3^2)/2,
+        l = y1 - atan2(-y2, X2),
+        g = atan2(-y2, X2) - atan2(-y3, X3),
+        h = atan2(-y3, X3)
+    ],
+
+    result : subst(rules, expr),
+    return(result)
+)$
+
+
+/* --------------------------------------------------------------------------
+ FUNCTION: poincare_to_delaunay(expr)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * applies the direct transformation, from poincare (y1,y2,y3,x1,x2,x3) to
+ * delaunay (l,g,h,l,g,h).
+ *
+ * arguments:
+ * expr - [expression] expression in poincare variables.
+ *
+ * return:
+ * [expression] converted to delaunay variables.
+ *
+ * reference:
+ * - ferraz-mello, s. (2007). canonical perturbation theories: degenerate 
+ *   systems and resonance. springer. eq. 7.7.
+ * - lara, m. (2010). hamiltonian perturbation solutions for spacecraft orbit prediction. eq. 6.25.
+ * - morbidelli, a. (2002). modern celestial mechanics-aspects of solar system dynamics. eqs. 1.76 and 1.78
+ *
+ * -------------------------------------------------------------------------- */
+poincare_to_delaunay(expr) := block(
+    [rules, result],
+
+    /* direct transformation: (l,g,h,l,g,h) -> (x,y) according to eq. 6.25 */
+    rules : [
+        X1 = L,
+        X2 = sqrt(2) * sqrt(L - G) * cos(g + h),
+        X3 = sqrt(2) * sqrt(G - H) * cos(h),
+        y1 = l + g + h,
+        y2 = -sqrt(2) * sqrt(L - G) * sin(g + h),
+        y3 = -sqrt(2) * sqrt(G - H) * sin(h)
+    ],
+
+    result : subst(rules, expr),
+    return(result)
+)$
+
+
+
+/* 
+    --------------------------------------------------------------------------
+    * implementation note: the use of "_symb"
+    * --------------------------------------------------------------------------
+    *
+    * it is essential that this function receives all symbols of the
+    * orbital elements (a_symb, e_symb, etc.) as arguments.
+    *
+    * reason:
+    * lagrange equations depend on partial derivatives like `diff(r, e_symb)`.
+    * if we used the global symbol 'e', the function would fail silently
+    * when calculating perturbations that depend on a different symbol (like 'e_3'
+    * of a third body).
+    *
+    * example:
+    * if r depends on 'e_3' and the function calls `diff(r, e)`, the result
+    * will be zero, because 'r' does not depend on the global symbol 'e'.
+    *
+    * by passing all symbols as arguments, we ensure that the
+    * coefficients (e.g., 1/n_symb*a_symb) and the derivatives (e.g., diff(r, m_symb))
+    * use the correct symbols for any calculation.
+    -------------------------------------------------------------------------- 
+*/
+
+/* --------------------------------------------------------------------------
+ FUNCTION: lagrange_planetary_equations(r, a_symb, e_symb, i_symb, h_symb, g_symb, m_symb, n_symb)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * calculates lagranges planetary equations, which provide the rate of
+ * change (time derivative) of the six classical orbital elements
+ * (a, e, i, omega, omega, m) under the influence of a 
+ * disturbing function r.
+ *
+ * this function is modular and expects all symbols used
+ * in the orbital elements to be passed as arguments, to ensure
+ * that the partial derivatives (diff) are calculated correctly.
+ *
+ * arguments:
+ * r         - [symbolic expression] the disturbing function (potential).
+ * a_symb    - [symbol] the symbol for the semi-major axis.
+ * e_symb    - [symbol] the symbol for the eccentricity.
+ * i_symb    - [symbol] the symbol for the inclination.
+ * h_symb    - [symbol] the symbol for the longitude of the ascending node.
+ * g_symb    - [symbol] the symbol for the argument of perigee.
+ * m_symb    - [symbol] the symbol for the mean anomaly.
+ * n_symb    - [symbol] the symbol for the mean motion.
+ *
+ * return:
+ * [list] a list containing the six symbolic time derivatives:
+ *         [da/dt, de/dt, di/dt, domega/dt, domega/dt, dm/dt]
+ *
+ * -------------------------------------------------------------------------- */
+lagrange_planetary_equations(R_pot, a_symb, e_symb, i_symb, h_symb, g_symb, M_symb, n_symb) := block(
+    
+    /* declares local variables */
+    [dadt, dedt, didt, dOmegadt, domegadt, dMdt], 
+
+    dadt: 'diff(a, t) = (2/(n_symb*a_symb)) * diff(R_pot, M_symb),
+
+    dedt: 'diff(e, t) = -(sqrt(1-e_symb^2))/(n_symb*a_symb^2*e_symb)*diff(R_pot, g_symb) 
+                        + (1-e_symb^2)/(n_symb*a_symb^2*e_symb)*diff(R_pot, M_symb),
+
+    didt: 'diff(i, t) = -1/(n_symb*a_symb^2*sqrt(1-e_symb^2)*sin(i_symb))*diff(R_pot, h_symb) 
+                        + cos(i_symb)/(n_symb*a_symb^2*sqrt(1-e_symb^2)*sin(i_symb))*diff(R_pot, g_symb),
+
+    dOmegadt: 'diff(Omega, t) = 1/(n_symb*a_symb^2*sqrt(1-e_symb^2)*sin(i_symb))*diff(R_pot, i_symb),
+
+    domegadt: 'diff(omega, t) = (sqrt(1-e_symb^2))/(n_symb*a_symb^2*e_symb)*diff(R_pot, e_symb) 
+                                - cos(i_symb)/(n_symb*a_symb^2*sqrt(1-e_symb^2)*sin(i_symb))*diff(R_pot, i_symb),
+
+    dMdt: 'diff(M, t) = n_symb - 2/(n_symb*a_symb)*diff(R_pot, a_symb) 
+                        - (1-e_symb^2)/(n_symb*a_symb^2*e_symb)*diff(R_pot, e_symb),
+
+    return([dadt, dedt, didt, dOmegadt, domegadt, dMdt])
+)$
+
+
+/* --------------------------------------------------------------------------
+ FUNCTION: lagrange_planetary_equations_nonsingular
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * calculates lagranges planetary equations in non-singular variables
+ * (modified equinoctial elements), which remove the singularities 
+ * present in classical equations for circular (e = 0) and
+ * equatorial (i = 0) orbits.
+ *
+ * the set of variables used is:
+ *   a      : semi-major axis
+ *   h1     : e * sin(omega + omega)
+ *   k1     : e * cos(omega + omega)
+ *   p1     : tan(i/2) * sin(omega)
+ *   q1     : tan(i/2) * cos(omega)
+ *   lambda : m + omega + omega  (mean longitude)
+ *
+ * arguments:
+ * r_pot     - [symbolic expression] the disturbing function.
+ *             must be expressed in terms of equinoctial elements
+ *             (a_s, h1_s, k1_s, p1_s, q1_s, lambda_s).
+ * a_s       - [symbol] semi-major axis.
+ * h1_s      - [symbol] e*sin(varpi), where varpi = omega + omega.
+ * k1_s      - [symbol] e*cos(varpi).
+ * p1_s      - [symbol] tan(i/2)*sin(omega).
+ * q1_s      - [symbol] tan(i/2)*cos(omega).
+ * lambda_s  - [symbol] mean longitude (m + omega + omega).
+ * n_s       - [symbol] mean motion.
+ *
+ * return:
+ * [list] [da/dt, dh1/dt, dk1/dt, dp1/dt, dq1/dt, dlambda/dt]
+ *
+ * references:
+ * - broucke, r. a. and cefola, p. j. (1972). on the equinoctial orbit 
+ *   elements. celestial mechanics, 5(3), 303-310.
+ * - walker, m. j. h., ireland, b. and owens, j. (1985). a set of modified
+ *   equinoctial orbit elements. celestial mechanics, 36, 409-419.
+ * - battin, r. h. (1999). an introduction to the methods of astrodynamics.
+ *   aiaa education series. sec. 10.3.
+ *
+ * -------------------------------------------------------------------------- */
+lagrange_planetary_equations_nonsingular(R_pot, a_s, h1_s, k1_s, p1_s, q1_s, lambda_s, n_s) := block(
+    [dadt, dh1dt, dk1dt, dp1dt, dq1dt, dlambdadt,
+     e2_s, eta_s, A_s, B_s, C_s],
+
+    /* abbreviations */
+    e2_s  : h1_s^2 + k1_s^2,                  /* e^2                    */
+    eta_s : sqrt(1 - e2_s),                    /* sqrt(1 - e^2)          */
+    A_s   : n_s * a_s^2,                       /* n * a^2                */
+    B_s   : 1 + p1_s^2 + q1_s^2,              /* 1 + tan(i/2)^2 = 2/(1+cos(i)) = 2*sec^2(i/2) ... no: = 1 + p^2 + q^2 */
+
+    /* 1. semi-major axis */
+    dadt : 'diff(a, t) = (2 / (n_s * a_s)) * diff(R_pot, lambda_s),
+
+    /* 2. h1 = e*sin(varpi) */
+    dh1dt : 'diff(h1, t) = -(eta_s / A_s) * diff(R_pot, k1_s)
+            + (eta_s * k1_s / (A_s * (1 + eta_s))) * diff(R_pot, lambda_s)
+            - (h1_s / (2 * A_s * eta_s)) * (p1_s * diff(R_pot, p1_s) + q1_s * diff(R_pot, q1_s)),
+
+    /* 3. k1 = e*cos(varpi) */
+    dk1dt : 'diff(k1, t) = (eta_s / A_s) * diff(R_pot, h1_s)
+            + (eta_s * h1_s / (A_s * (1 + eta_s))) * diff(R_pot, lambda_s)
+            + (k1_s / (2 * A_s * eta_s)) * (p1_s * diff(R_pot, p1_s) + q1_s * diff(R_pot, q1_s)),
+
+    /* 4. p1 = tan(i/2)*sin(omega) */
+    dp1dt : 'diff(p1, t) = (B_s / (2 * A_s * eta_s)) * diff(R_pot, q1_s),
+
+    /* 5. q1 = tan(i/2)*cos(omega) */
+    dq1dt : 'diff(q1, t) = -(B_s / (2 * A_s * eta_s)) * diff(R_pot, p1_s),
+
+    /* 6. mean longitude (lambda = m + omega + omega) */
+    dlambdadt : 'diff(lambda, t) = n_s 
+                - (2 / (n_s * a_s)) * diff(R_pot, a_s)
+                - (eta_s / A_s * (1 + eta_s)) 
+                  * (h1_s * diff(R_pot, h1_s) + k1_s * diff(R_pot, k1_s))
+                + (1 / (2 * A_s * eta_s)) 
+                  * (p1_s * diff(R_pot, p1_s) + q1_s * diff(R_pot, q1_s)),
+
+    return([dadt, dh1dt, dk1dt, dp1dt, dq1dt, dlambdadt])
+)$
+
+
+/* --------------------------------------------------------------------------
+ FUNCTION: gauss_planetary_equations
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * calculates gauss planetary equations in rsw form 
+ * (radial-transverse-normal), which provide the rate of change of the six 
+ * classical orbital elements (a, e, i, omega, omega, m) under the influence 
+ * of an arbitrary perturbing force decomposed into the three orbital components.
+ *
+ * unlike lagrange equations, which require a scalar disturbing
+ * function r (potential), gauss equations accept arbitrary perturbing 
+ * forces, including non-conservative forces (e.g., drag, propulsion).
+ *
+ * arguments:
+ * a_dr      - [expression] radial component of the perturbing acceleration
+ *             (positive outwards, in the direction of the position vector).
+ * a_dt      - [expression] transverse component of the perturbing acceleration
+ *             (positive in the direction of motion, perpendicular to a_dr 
+ *              in the orbital plane).
+ * a_dh      - [expression] normal component of the perturbing acceleration
+ *             (positive in the direction of the orbital angular momentum).
+ * a_symb    - [symbol] semi-major axis.
+ * e_symb    - [symbol] eccentricity.
+ * i_symb    - [symbol] inclination.
+ * h_symb    - [symbol] longitude of the ascending node (omega).
+ * g_symb    - [symbol] argument of perigee (omega).
+ * f_symb    - [symbol] true anomaly.
+ * n_symb    - [symbol] mean motion.
+ *
+ * return:
+ * [list] [da/dt, de/dt, di/dt, domega/dt, domega/dt, dm/dt]
+ *
+ * reference:
+ * battin, r. h. (1999). an introduction to the mathematics and methods of astrodynamics.
+ * aiaa education series. eq. 10.41.
+ *
+ * -------------------------------------------------------------------------- */
+gauss_planetary_equations(a_dr, a_dt, a_dh, a_symb, e_symb, i_symb, 
+                          h_symb, g_symb, f_symb, n_symb) := block(
+    [dadt, dedt, didt, dOmegadt, domegadt, dMdt,
+     p_s, r_s, hm_s, b_s, theta_s],
+
+    /* orbital abbreviations */
+    p_s     : a_symb * (1 - e_symb^2),
+    r_s     : p_s / (1 + e_symb * cos(f_symb)),
+    hm_s    : n_symb * a_symb^2 * sqrt(1 - e_symb^2),
+    b_s     : a_symb * sqrt(1 - e_symb^2),
+    theta_s : f_symb + g_symb,
+
+    /* 1. semi-major axis (da/dt) */
+    dadt : 'diff(a, t) = (2 * a_symb^2 / hm_s) 
+           * (e_symb * sin(f_symb) * a_dr + (p_s / r_s) * a_dt),
+
+    /* 2. eccentricity (de/dt) */
+    dedt : 'diff(e, t) = (1 / hm_s) 
+           * (p_s * sin(f_symb) * a_dr 
+              + ((p_s + r_s) * cos(f_symb) + r_s * e_symb) * a_dt),
+
+    /* 3. inclination (di/dt) */
+    didt : 'diff(i, t) = (r_s * cos(theta_s) / hm_s) * a_dh,
+
+    /* 4. longitude of the ascending node (domega/dt) */
+    dOmegadt : 'diff(Omega, t) = (r_s * sin(theta_s)) 
+               / (hm_s * sin(i_symb)) * a_dh,
+
+    /* 5. argument of perigee (domega/dt) */
+    domegadt : 'diff(omega, t) = (1 / (hm_s * e_symb)) 
+               * (-p_s * cos(f_symb) * a_dr + (p_s + r_s) * sin(f_symb) * a_dt)
+               - (r_s * sin(theta_s) * cos(i_symb)) 
+                 / (hm_s * sin(i_symb)) * a_dh,
+
+    /* 6. mean anomaly (dm/dt) */
+    dMdt : 'diff(M, t) = n_symb 
+           + (b_s / (a_symb * hm_s * e_symb)) 
+             * ((p_s * cos(f_symb) - 2 * r_s * e_symb) * a_dr 
+                - (p_s + r_s) * sin(f_symb) * a_dt),
+
+    return([dadt, dedt, didt, dOmegadt, domegadt, dMdt])
+)$
+
+/* ============================================================================
+ FUNCTION: prepare_planetary_equations
+ Description:
+ prepares the perturbing potential list for planetary equations.
+
+ Parameters:
+ r_pot_list: list of perturbing potential expressions.
+ order_e: truncation order for eccentricity.
+ r_exp: conic expression for the radial distance.
+ a_symb: symbol for semi-major axis.
+ e_symb: symbol for eccentricity.
+ i_symb: symbol for inclination.
+ f_symb: symbol for true anomaly.
+ m_symb: symbol for mean anomaly.
+ e_symb_ecc: symbol for eccentric anomaly.
+ r_symb: symbol for radial distance.
+
+ Returns:
+ the final prepared potential series substituting short period terms.
+ ============================================================================ */
+prepare_planetary_equations(R_pot_list, order_e, r_exp, a_symb, e_symb, i_symb, f_symb, M_symb, E_symb, r_symb) := block(
+    [R_sum, R_sum_trig, R_zonal_no_r, R_zonal_exp, cos_f, sin_f, R_zonal_series],
+
+    /* 1. sums the potentials in the list */
+    R_sum: apply("+", R_pot_list), 
+    
+    /* 2. replaces the atoms sin_i/cos_i with the correct functional symbol */
+    R_sum_trig: subst([sin_i=sin(i_symb), cos_i=cos(i_symb)], R_sum),
+
+    /* 3. replaces the radius r with the conic expression (r_exp) */
+    R_zonal_no_r: subst(r_symb=r_exp, R_sum_trig),
+
+    /* 4. expands trigonometric terms mixing f_symb with other angles (e.g., g) */
+    R_zonal_exp: celmec_trigexpand(R_zonal_no_r, f_symb),
+
+    /* 5. generates the kepler series for the short period */
+    cos_f: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
+    sin_f: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
+
+    /* 6. replaces the series in the expanded potential */
+    R_zonal_series: subst([cos(f_symb)=cos_f, sin(f_symb)=sin_f], R_zonal_exp),
+
+    return(R_zonal_series)
+)$
+
+shows_available_functions() :=block(
+    print("available functions:"),
+    print("  - lagrange_planetary_equations(R, a_symb, e_symb, i_symb, h_symb, g_symb, M_symb, n_symb)")
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

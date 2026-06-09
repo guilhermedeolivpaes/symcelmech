@@ -1,0 +1,316 @@
+/* celmechseries.mac */
+
+suppress_trace_warnings: true$
+
+/* --- global package settings --- */
+
+/* declares that the variables belong to the set of real numbers */
+declare([e, E, M], real)$
+    
+/* adds restrictions on the range of values for integration and simplification */
+assume(e >= 0, e < 1, E >= 0, E <= 2*%pi, M >= 0, M <= 2*%pi)$
+
+ 
+/* ============================================================================
+ FUNCTION: _get_e_series
+ Description:computes the series expansion of the eccentric anomaly (e) as a 
+ * function of the mean anomaly (m) and eccentricity (e).
+ Parameters:
+ * order_e (int): truncation order for the eccentricity (e).
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+_get_E_series(order_e, M_symb, e_symb, E_symb) := block([E_approx, n],
+    /* start with approximation e approx m */
+    E_approx: M_symb,
+    
+    /* iterate to get higher order terms in e */
+    for n: 1 thru order_e do (
+        E_approx: M_symb + e_symb*sin(E_approx)
+    ),
+    
+    /* expand in taylor series */
+    return(taylor(E_approx, e_symb, 0, order_e))
+)$
+
+/* ============================================================================
+ FUNCTION: get_cos_f_series
+ Description:generates the series expansion for cos(f) in terms of m and e.
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+get_cos_f_series(order_e, M_symb, e_symb, E_symb) := block(
+    /* declare all local vars */
+    [E_series, cos_f_expr, result],
+
+    /* get series of e */
+    E_series: _get_E_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* expression for cos(f) */
+    cos_f_expr: (cos(E_symb) - e_symb)/(1 - e_symb*cos(E_symb)),
+    
+    /* substitute e with the series and expand */
+    result: subst(E_symb = E_series, cos_f_expr),
+    result: taylor(result, e_symb, 0, order_e),
+    result: trigreduce(result), /* converts powers to multiple angles */
+    /* instead of appearing cos(m)^2, for example, it will appear in terms of cos(2m)... */
+    return(result)
+)$
+
+/* ============================================================================
+ FUNCTION: get_sin_f_series
+ Description:generates the series expansion for sin(f) in terms of m and e.
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+get_sin_f_series(order_e, M_symb, e_symb, E_symb) := block(
+    /* declare all local vars */
+    [E_series, sin_f_expr, result],
+
+    /* get series of e */
+    E_series: _get_E_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* expression for sin(f) */
+    sin_f_expr: sqrt(1 - e_symb^2)*sin(E_symb)/(1 - e_symb*cos(E_symb)),
+    
+    /* substitute e with the series and expand */
+    result: subst(E_symb = E_series, sin_f_expr),
+    result: taylor(result, e_symb, 0, order_e),
+    result: trigreduce(result), /* converts powers to multiple angles */
+    /* instead of appearing cos(m)^2, for example, it will appear in terms of cos(2m)... */
+    
+    return(result)
+)$
+
+/* ============================================================================
+ FUNCTION: get_r_over_a_kepler_series
+ Description:computes the series expansion of the normalized radial distance (r/a).
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+get_r_over_a_kepler_series(order_e, M_symb, e_symb, E_symb) := block(
+    /* declare all local vars */
+    [E_series, r_a_expr],
+    
+    /* 1. get the series for e(m, e) */
+    E_series: _get_E_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* 2. define the exact equation */
+    r_a_expr: 1 - e_symb*cos(E_symb),
+    
+    /* 3. substitute the series of e in the equation */
+    r_a_expr_subst: subst(E_symb = E_series, r_a_expr),
+    
+    /* 4. expand the final result in series of e */
+    result: taylor(r_a_expr_subst, e_symb, 0, order_e),
+    return(trigreduce(result))
+)$
+
+/* ============================================================================
+ FUNCTION: get_cos_e_series
+ Description:computes the series expansion of cos(e).
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+ get_cos_E_series(order_e, M_symb, e_symb, E_symb) := block(
+    /* declare all local vars */
+    [r_a_Series, cos_E_expr, result],
+    
+    /* 1. get the series for r/a in order (order_e+1) */
+    r_a_series: get_r_over_a_kepler_series(order_e+1, M_symb, e_symb, E_symb),
+    
+    /* 2. apply the algebraic expression cos(e) = (1 - r/a) / e */
+    cos_E_expr: (1 - r_a_series) / e_symb,
+    
+    /* 3. re-expand the result to the final order order_e */
+    result: taylor(cos_E_expr, e_symb, 0, order_e),
+    
+    /* 4. simplify trigonometric functions (e.g., cos(m)^2 -> cos(2m)) */
+    return(trigreduce(result))
+)$
+
+/* ============================================================================
+ FUNCTION: get_f_series
+ Description:computes the series for the true anomaly (f).
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+get_f_series(order_e, M_symb, e_symb, E_symb) := block(
+    [sin_f_series, cos_f_series, f_expr, result],
+    
+    /* 1. get the series of sin(f) and cos(f) in terms of m and e */
+    sin_f_series: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
+    cos_f_series: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* 2. calculate f using atan2 */
+    /* the series of f(m, e). the order 0 term of this is m_symb. */
+    f_expr: atan2(sin_f_series, cos_f_series),
+    
+    /* 3. re-expand and simplify */
+    /* we only apply taylor() to the f series to ensure
+       the correct truncation at order_e. */
+    result: taylor(f_expr, e_symb, 0, order_e),
+    
+    return(trigreduce(result))
+)$
+
+/* ============================================================================
+ FUNCTION: get_f_minus_m_series
+ Description:computes the series for the equation of the center (f - m).
+ Parameters:
+ * order_e (int): truncation order for the eccentricity.
+ * m_symb (sym): symbol for mean anomaly.
+ * e_symb (sym): symbol for eccentricity.
+ * e_symb_ecc (sym): symbol for eccentric anomaly.
+ * ============================================================================ */
+get_f_minus_M_series(order_e, M_symb, e_symb, E_symb) := block(
+    [sin_f_series, cos_f_series, f_expr, f_M_expr, result],
+    
+    /* 1. get the series of sin(f) and cos(f) in terms of m and e */
+    sin_f_series: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
+    cos_f_series: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* 2. calculate f using atan2 */
+    /* the series of f(m, e) */
+    f_expr: atan2(sin_f_series, cos_f_series),
+    
+    /* 3. calculate the equation of the center (f - m) */
+    /* the order 0 (e=0) of f_expr is m_symb, so they cancel out
+       the resulting series starts at o(e^1). */
+    f_M_expr: f_expr - M_symb,
+    
+    /* 4. re-expand and simplify */
+    /* we use taylor() again to ensure that the expression
+       (resulting from the subtraction) is correctly truncated at order_e. */
+    result: taylor(f_M_expr, e_symb, 0, order_e),
+    
+    /* trigreduce() converts powers (e.g., sin(m)^2) into multiple
+       angles (e.g., cos(2m)), if any. */
+    return(trigreduce(result))
+)$
+
+/* ============================================================================
+ FUNCTION: truncate_ecc_delaunay
+ Description:specialized truncation tool for expressions using delaunay variables (l, g).
+ Parameters:
+ * expr (expr): the expression to be truncated.
+ * max_ord (int): maximum power of eccentricity to preserve.
+ * g_var (sym): the delaunay g action symbol.
+ * l_var (sym): the delaunay l action symbol.
+ * ============================================================================ */
+truncate_ecc_delaunay(expr, max_ord, G_var, L_var) := block(
+    [temp, eps, result],
+    
+    /* 1. forces maxima to treat eps as positive to avoid abs */
+    assume(eps > 0),
+    
+    /* 2. introduces the dummy parameter eps */
+    temp: subst(G_var = L_var * sqrt(1 - eps^2), expr),
+    
+    /* 3. simplification and expansion */
+    temp: taylor(temp, eps, 0, max_ord),
+    result: ratdisrep(temp),
+    
+    /* 4. cleanup: removes the assumption so as not to affect the rest of the system */
+    forget(eps > 0),
+    
+    /* 5. returns to delaunay and expands */
+    result: subst(eps = sqrt(1 - G_var^2/L_var^2), result),
+    return(result)
+)$
+
+/* ============================================================================
+ FUNCTION: truncate_ecc_keplerian
+ Description:truncates expressions in eccentricity (e) while properly handling true anomaly dependencies.
+ Parameters:
+ * expr (expr): the expression to be truncated.
+ * max_ord (int): maximum power of eccentricity to preserve.
+ * ============================================================================ */
+truncate_ecc_keplerian(expr, max_ord) := block(
+    [temp],
+    
+    /* 1. Only substitute r if present (series mode should be freeof r) */
+    if freeof(r, expr) then
+        temp: expr
+    else
+        temp: subst(r = r_two_body_exact(e, a, f), expr),
+    
+    /* 2. Taylor expansion in e */
+    temp: taylor(temp, e, 0, max_ord),
+    
+    /* 3. Convert to common polynomial */
+    temp: ratdisrep(temp),
+  
+    return(temp)
+)$
+
+/* ============================================================================
+ FUNCTION: truncate_closed_form
+ Description:truncates expressions in closed-form by sweeping the polynomial.
+ Parameters:
+ * expr (expr): the expression to be truncated.
+ * max_ord (int): maximum power of eccentricity to preserve.
+ * ============================================================================ */
+truncate_closed_form(expr, max_ord) := block(
+    [res, term_list, final_expr: 0],
+    
+    /* 1. protects the exact kinematics of the closed form */
+    res: subst([eta = ETA_DUMMY, sin_i = SINI_DUMMY, cos_i = COSI_DUMMY], expr),
+    
+    /* 2. forces total expansion (ratexpand) to separate the terms */
+    res: ratexpand(res),
+    
+    /* 3. transforms the giant expression into an iterable list */
+    if op(res) = "+" then
+        term_list: args(res)
+    else
+        term_list: [res],
+        
+    /* 4. sweeps and truncates */
+    for term in term_list do (
+        if hipow(term, e) <= max_ord then
+            final_expr: final_expr + term
+    ),
+    
+    /* 5. returns the geometric protection */
+    final_expr: subst([ETA_DUMMY = eta, SINI_DUMMY = sin_i, COSI_DUMMY = cos_i], final_expr),
+    
+    /* 6. repacks the equation (drops the leaf_count) */
+    final_expr: ratsimp(final_expr),
+    
+    return(final_expr)
+)$
+
+/* ============================================================================
+ FUNCTION: shows_available_functions
+ Description:prints the list of available functions in this module.
+ Parameters: none
+ * ============================================================================ */
+shows_available_functions() := block(
+    print("available functions:"),
+    print("  - get_cos_f_series(order_e, M_symb, e_symb, E_symb)"),
+    print("  - get_sin_f_series(order_e, M_symb, e_symb, E_symb)"),
+    print("  - get_r_over_a_kepler_series(order_e, M_symb, e_symb, E_symb)"),
+    print("  - get_cos_E_series(order_e, M_symb, e_symb, E_symb)"),
+    print("  - get_f_series(order_e, M_symb, e_symb, E_symb)"),
+    print("  - get_f_minus_M_series(order_e, M_symb, e_symb, E_symb)")
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

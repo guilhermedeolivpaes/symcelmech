@@ -1,0 +1,313 @@
+/* average.mac */
+
+suppress_trace_warnings: true$
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+
+load("analyticalfunctions.mac")$
+
+assume(L > G, G > H, G > 0, L > 0)$
+assume(e > 0, e < 1, e3 > 0, e3 < 1)$
+
+/* ============================================================================
+ FUNCTION: leaf_count
+ Description:measures the structural complexity and symbolic weight of an expression 
+ * by recursively counting the number of atoms leaves in its expression tree. 
+ * while nterms only counts the number of summands leaf count provides a 
+ * metric for the total computational cost and memory footprint of the terms.
+ * usage note critical for monitoring expression swell during high order lie 
+ * transformations allowing the user to decide when to apply chop series 
+ * or further simplifications.
+ Parameters:
+ * expr: the symbolic expression to be analyzed
+ * ============================================================================ */
+leaf_count(expr) := if atom(expr) then 1 else 1 + apply("+", map(leaf_count, args(expr)))$
+
+/* ============================================================================
+ FUNCTION: map_average
+ Description:acts as a symbolic filter to segregate a hamiltonian into its secular 
+ * mean and periodic fluctuating components relative to a specific 
+ * averaging variable for example true anomaly f or mean anomaly l.
+ * internal logic automatically handles single expressions sums or lists. 
+ * iterates through each summand to perform a clean freeof check. 
+ * this separation is the precursor to the homologous equation solver 
+ * defining which terms contribute to the transformed energy and which 
+ * to the generating function.
+ Parameters:
+ * ham_input: the hamiltonian expression to be processed
+ * var_avg: the variable of integration or averaging
+ * ============================================================================ */
+map_average(ham_input, var_avg) := block(
+    [ham_list, total_secular: 0, total_periodic: 0, res],
+    
+    /* converts the input into a list to iterate term by term */
+    ham_list : if listp(ham_input) then ham_input 
+               else if not atom(ham_input) and op(ham_input) = "+" then args(ham_input) 
+               else [ham_input],
+    
+    /* iterates over each term of the hamiltonian to separate secular components from periodic ones according to the model closed or series */
+    for h in ham_list do (
+        
+        /* here h is already the term prepared by the prepare potential poisson function */
+        if freeof(var_avg, h) then (
+            total_secular : total_secular + h
+        ) else (
+            total_periodic : total_periodic + h
+        )
+    ),
+
+    [total_secular, total_periodic]
+)$
+
+
+/* ============================================================================
+ * hansen coefficients and orbital averaging hughes method
+ Description:implements the calculation of hansen coefficients x0 n m e and the 
+ * associated orbital averaging technique for terms of the form r n exp i m f. 
+ * this module allows for exact analytical averaging over the true anomaly f 
+ * by mapping trigonometric terms directly to eccentricity functions.
+ * ============================================================================ */
+
+kill(hansen_x0_pos, hansen_x0_pos_calc)$
+
+/* ============================================================================
+ FUNCTION: hansen_x0_pos_calc
+ Description:recursively computes the hansen coefficients x0 n m e for positive 
+ * powers of the radial distance n greater than 0. 
+ * mathematical reference uses the recursion relations established by hughes 1977 
+ * and modified for stability in symbolic environments.
+ Parameters:
+ * n: power of the radial distance r n
+ * m: frequency of the true anomaly m f
+ * ecc: eccentricity e
+ * ============================================================================ */
+hansen_x0_pos_calc[n, m, ecc] := block(
+    [local_m : abs(m)],
+    
+    if n = 1 and local_m = 0 then return(expand(1 + ecc^2/2)),
+    if n = 2 and local_m = 0 then return(expand(1 + 3*ecc^2/2)),
+    if n = 1 and local_m = 1 then return(expand(-3*ecc/2)),
+    if n = 2 and local_m = 1 then return(expand(-2*ecc*(1 + ecc^2/4))),
+
+    if local_m > 1 then (
+        return(expand( 
+            (1/(ecc*(n - local_m + 2))) * (ecc*(n + local_m) * hansen_x0_pos_calc[n, local_m - 2, ecc] + 
+             2*(local_m - 1) * hansen_x0_pos_calc[n, local_m - 1, ecc]) 
+        ))
+    ),
+
+    if n > 2 then (
+        return(expand( 
+            ((2*n + 1)/(n + 1)) * hansen_x0_pos_calc[n - 1, local_m, ecc] - 
+            ((n - local_m)*(n + local_m))/(n*(n + 1)) * (1 - ecc^2) * hansen_x0_pos_calc[n - 2, local_m, ecc] 
+        ))
+    ),
+    
+    return(0)
+)$
+
+/* ============================================================================
+ FUNCTION: hansen_x0_pos
+ Description:alias for hansen x0 pos calc. recursively computes the hansen 
+ * coefficients x0 n m e for positive powers of the radial distance.
+ Parameters:
+ * n: power of the radial distance r n
+ * m: frequency of the true anomaly m f
+ * ecc: eccentricity e
+ * ============================================================================ */
+hansen_x0_pos[n, m, ecc] := hansen_x0_pos_calc[n, m, ecc]$
+
+
+/* ============================================================================
+ FUNCTION: hansen_x0_neg
+ Description:computes the hansen coefficients x0 minus n plus 1 m e for negative powers of 
+ * the radial distance n less than 0. this is critical for averaging gravitational 
+ * potentials 1 r n. method employs a closed form analytical binomial expansion.
+ Parameters:
+ * n: negative power magnitude actually passed as positive related to n plus 1
+ * m: frequency
+ * e: eccentricity
+ * ============================================================================ */
+hansen_x0_neg(n, m, e) := block(
+    [p, coef, k, m_abs, j, limit],
+    p : n - 1,
+    m_abs : abs(m),
+    
+    /* physical nullity rule */
+    if m_abs > p then return(0),
+    
+    /* analytical binomial expansion */
+    /* k starts at m abs and jumps by 2 until p */
+    limit : floor((p - m_abs)/2),
+    coef : sum(
+        binomial(p, m_abs + 2*j) * (e^(m_abs + 2*j) / 2^(m_abs + 2*j)) * binomial(m_abs + 2*j, j),
+        j, 0, limit
+    ),
+    
+    return(expand(radcan(coef / (1 - e^2)^(n - 1/2))))
+)$
+
+
+
+/* ============================================================================
+ FUNCTION: get_arg_safe
+ Description:safely takes the argument of a function cos or sin within an expression.
+ Parameters:
+ * ex: the expression
+ * fn: the function to search for
+ * ============================================================================ */
+get_arg_safe(ex, fn) := catch(
+    scanmap(lambda([u], if not(atom(u)) and op(u) = fn then throw(part(u, 1)) else u), ex),
+    ex
+)$
+
+/* ============================================================================
+ FUNCTION: process_hansen_term
+ Description:core pattern matching unit that identifies the power of r and the 
+ * trigonometric frequency of f within a single term replacing them 
+ * with the corresponding hansen averaged coefficient.
+ Parameters:
+ * termo: a single summand from the hamiltonian
+ * vf: the true anomaly variable f
+ * eccs: clean symbol for eccentricity
+ * as: clean symbol for semi major axis
+ * ============================================================================ */
+process_hansen_term(termo, vf, eccS, aS) := block(
+    [ang, mm, pp, n_exp, coef_puro, f_fn],
+    
+    /* 1. identifies the trigonometric function and extracts the angle */
+    if not freeof(cos, termo) then f_fn : cos
+    else if not freeof(sin, termo) then f_fn : sin
+    else f_fn : false,
+
+    if f_fn # false then (
+        ang : get_arg_safe(termo, f_fn),
+        mm  : coeff(ang, vf),        /* m from mathematica */
+        pp  : ratexpand(ang - mm*vf)    /* p from mathematica where your g is */
+    ) else (
+        mm : 0, pp : 0
+    ),
+
+    /* 2. hunts the power of r */
+    n_exp : hipow(termo, r),
+    if n_exp = 0 then n_exp : lopow(termo, r),
+    
+    /* 3. isolates the coefficient cc from mathematica */
+    coef_puro : termo,
+    if f_fn # false then coef_puro : subst(1, f_fn(ang), coef_puro),
+    if n_exp # 0 then coef_puro : subst(1, r^n_exp, coef_puro),
+
+    /* 4. reconstructs using hansen preserving pp */
+    if n_exp # 0 then (
+        return(coef_puro * aS^n_exp * (if n_exp > 0 then hansen_x0_pos[n_exp, mm, eccS] 
+                else hansen_x0_neg(abs(n_exp)-1, mm, eccS)) * (if f_fn = cos then cos(pp) else if f_fn = sin then sin(pp) else 1))
+    ) else return(0) /* term without r n in the average is garbage */
+)$
+
+/* ============================================================================
+ FUNCTION: apply_hansen_hughes
+ Description:high level iterator that applies the hansen hughes averaging process over 
+ * a sum of terms. it linearizes the expression using trigreduce before 
+ * mapping the process hansen term function across all summands.
+ Parameters:
+ * expr: the expression to be averaged
+ * varf: the true anomaly variable
+ * eccs: the eccentricity variable
+ * as: the semi major axis variable
+ * ============================================================================ */
+apply_hansen_hughes(expr, varF, eccS, aS) := block(
+    [temp, lista],
+    /* ensures there is no rat or cre and expands to free the terms */
+    temp : totaldisrep(expr),
+    temp : expand(trigreduce(trigexpand(temp))),
+    
+    if atom(temp) or op(temp) # "+" then lista : [temp] else lista : args(temp),
+    
+    return(apply("+", map(lambda([u], process_hansen_term(u, varF, eccS, aS)), lista)))
+)$
+
+/* ============================================================================
+ FUNCTION: hansen_third_body_average
+ Description:specialized top level function for third body potential averaging. 
+ * it manages the jacobian weight usually r 2 a 2 eta performs 
+ * the hansen based quadrature and splits the resulting hamiltonian 
+ * into its secular and periodic components.
+ Parameters:
+ * u3b_raw: raw third body potential
+ * var_f: true anomaly variable
+ * jacobian_eta: jacobian weight for the integration
+ * ============================================================================ */
+hansen_third_body_average(U3b_raw, var_f, jacobian_eta) := block(
+    [U3b_jac, weighted_term, secular_part, periodic_part, e_sym, a_sym],
+
+    /* 0. clean symbols for the hansen engine */
+    e_sym : gensym("e_"),
+    a_sym : gensym("a_"),
+    
+    /* 1. weighting and trigonometric linearization */
+    U3b_jac : U3b_raw * jacobian_eta,
+    
+    /* protects e and a during trigreduce and expand */
+    weighted_term : subst([e = e_sym, a = a_sym], U3b_jac),
+    weighted_term : trigreduce(weighted_term),
+    weighted_term : expand(weighted_term),
+
+    /* 2. hansen engine */
+    secular_part : apply_hansen_hughes(weighted_term, var_f, e_sym, a_sym),
+
+    /* 3. periodic part */
+    periodic_part : expand(weighted_term - secular_part),
+
+    /* 4. restores the original symbols */
+    secular_part  : subst([e_sym = e, a_sym = a], secular_part),
+    periodic_part : subst([e_sym = e, a_sym = a], periodic_part),
+
+    return([secular_part, periodic_part])
+)$
+
+/* ============================================================================
+ FUNCTION: hansen_srp_average
+ Description:extracts the secular average and the periodic part of the solar radiation 
+ * pressure srp potential exactly without eccentricity expansion.
+ * computational strategy keeps the symbols in keplerian form a e i to optimize the hansen 
+ * engine and preserve compatibility with the kinematics of pb closed form.
+ * the conversion to delaunay actions l g h is delegated to the post processor 
+ * sanitize hamiltonian expression.
+ Parameters:
+ * u_srp: the solar radiation pressure potential
+ * var_f: the true anomaly variable
+ * ============================================================================ */
+hansen_srp_average(U_srp, var_f) := block(
+    [U_exp, hamSecular, hamPeriodic],
+
+    /* 1. trigonometric linearization in the keplerian domain
+     * expands and reduces the combined cosines generated in derive srp potential
+     * maintaining the integrity of the pure symbols.
+     */
+    U_exp : trigreduce(U_srp),
+    U_exp : expand(U_exp),
+
+    /* 2. secular extraction via hansen coefficients hughes
+     * since the radial power of the srp is n equals 1 the apply hansen hughes function 
+     * via hansen x0 pos will generate exact and finite polynomials in e.
+     * there is no need for a jacobian here as the geometry is not altered.
+     */
+    hamSecular : apply_hansen_hughes(U_exp, var_f, e, a),
+
+    /* 3. periodic part extraction
+     * the periodic part is simply the difference between the expanded osculating 
+     * potential and its secular average. this part will serve as input for the 
+     * integration of the first order generating function.
+     */
+    hamPeriodic : expand(U_exp - hamSecular),
+
+    /* returns the list in the format that solve hori deprit recurrence 
+     * expects to receive in f input list secular periodic 
+     */
+    return([hamSecular, hamPeriodic])
+)$
+
+/* turns on confirmation to return to normal. */
+suppress_trace_warnings: false$

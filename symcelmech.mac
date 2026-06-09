@@ -1,0 +1,19 @@
+/* symcelmech.mac -- entry point for the symcelmech package */
+
+/* ensure the package directory is in the search path */
+if not member(pathname_directory(load_pathname), file_search_maxima) then
+    file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+/* core modules */
+load("astrodata.mac")$
+load("celmechseries.mac")$
+load("analyticalfunctions.mac")$
+load("algebraicutils.mac")$
+load("average.mac")$
+load("derivepotential.mac")$
+load("lietransformations.mac")$
+load("planetaryequations.mac")$
+
+symcelmech_version : "1.0.0"$
+
+print(concat("symcelmech ", symcelmech_version, " loaded."))$

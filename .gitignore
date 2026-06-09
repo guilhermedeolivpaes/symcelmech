@@ -1,0 +1,53 @@
+# Maxima / wxMaxima
+*.wxmx
+*.wxmx~
+*.wxm
+*.wxm~
+*.mac~
+maxout*.gnuplot
+maxout*.gnuplot_pipes
+maxima-init.mac
+
+# Maxima compiled Lisp files
+*.fasl
+*.fas
+*.o
+*.lx64fsl
+*.dx64fsl
+
+# wxMaxima autosave and recovery
+\#*\#
+.maxima/
+
+# Editor backups
+*~
+*.bak
+*.swp
+*.swo
+.*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# LaTeX auxiliary files (if manuscript is in the same repo)
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.run.xml
+*.bcf
+*-blx.bib
+sn-article.tex
+sn-article_old.tex

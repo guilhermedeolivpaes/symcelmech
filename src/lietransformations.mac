@@ -1,0 +1,424 @@
+
+/* lietransformations.mac */
+
+suppress_trace_warnings: true$
+redefine_warn: false$
+
+/* captures the directory where this file (.mac) resides. */
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+/* loads modules that will be used */
+load("analyticalfunctions.mac")$
+load("average.mac")$
+load("celmechseries.mac")$
+load("algebraicutils.mac")$
+
+
+/* ============================================================================
+ * FUNCTION: compute_B
+ * ============================================================================
+ * Description:
+ * Computes the intermediate terms (B_{n,k}) of the recursive Lie triangle 
+ * according to the Hori-Deprit/Mersman formalism. This function handles the 
+ * cross-coupling between previous Hamiltonian terms and generating functions 
+ * using Poisson Brackets.
+ *
+ * Mathematical Reference:
+ * Implements Equation 11 and Equation 12 from Mersman (1970), "A Unified 
+ * Treatment of the Theory of Hamiltonian Systems and Lie Series."
+ *
+ * Parameters:
+ * nn              (int): Current row of the Lie triangle (order of perturbation).
+ * kk              (int): Current column of the Lie triangle.
+ * vars_list       (list): Canonical variables for the Poisson Brackets.
+ * max_order_s     (int): Maximum order allowed for generating functions.
+ * closed_form     (bool): If true, performs exact algebraic simplification.
+ * If false, operates in series expansion mode.
+ * order_trunc_e   (int/bool): Order of eccentricity truncation (if in series mode).
+ *
+ * Returns:
+ * The computed symbolic expression for the term B[nn, kk], properly 
+ * sanitized and simplified according to the integration mode.
+ *
+ * Internal Logic:
+ * - k=0: Boundary condition. Returns the initial transformed term (f_star[nn]).
+ * - k>0: Evaluates the recursive summation of Poisson Brackets:
+ * B[n, k] = (1/k) * sum_{j=1}^{n-k+1} {B[n-j, k-1], S[j]}
+ * - Employs 'pb_memo' for high-speed Poisson Bracket retrieval.
+ * - Handles 'trigreduce' and 'rat' conversion to maintain series structure 
+ * when in expansion mode.
+ * ============================================================================ */
+compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
+
+    [jj, sum_val: 0, temp_list, reduced_list, temp_F, temp_S, new_term, temp_args],
+
+    if kk = 0 then return(f_star[nn]),  /* boundary condition for column zero (equation 12, Mersman, 1970) */
+    
+    for jj:1 thru min(nn - kk + 1, max_order_s) do (
+        if closed_form then (
+            new_term: pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
+            sum_val: clean_pb(sum_val + new_term)
+
+        ) else (
+            /* recurrence for intermediate terms (equation 11, Mersman, 1970) */
+            /* called via memoization: ignores vars_list because it's already fixed in the cache. */
+            new_term : pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
+            
+            if order_trunc_e # false then (
+                new_term : truncate_ecc_keplerian(new_term, order_trunc_e)
+            ),
+            
+            sum_val : sum_val + new_term
+        )
+    ), /* end of for loop */
+
+
+    if closed_form then (
+        new_term : clean_pb(sum_val / kk)
+    ) else (
+        /* for expansion in e, the rat() function helps maintain the series structure. */
+        /*new_term : trigreduce(rat(sum_val / kk))*/
+        new_term : ratexpand(sum_val / kk),
+        if new_term = 0 then
+            new_term : 0
+        else if atom(new_term) or not(op(new_term) = "+") then
+            new_term : trigreduce(new_term)
+        else
+            new_term : map(trigreduce, new_term)
+    ),
+
+    return(sanitize_hamiltonian_expression(new_term, closed_form, order_trunc_e))
+)$
+
+
+/* ============================================================================
+ * FUNCTION: solve_hori_deprit_recurrence
+ * ============================================================================
+ * Description:
+ * Core analytical perturbation engine based on the Lie Transformation Method 
+ * (Hori-Deprit/Mersman formalism). It constructs the recursive Lie triangle 
+ * to compute transformed Hamiltonians (secular/mean) and the associated 
+ * generating functions of the system up to an arbitrary order.
+ *
+ * Integration Architectures (Dual-Track):
+ * 1. Closed-Form (closed_form = true): Performs exact integration in the true 
+ * anomaly domain by substituting the orbit equation. It natively incorporates 
+ * Deprit's Parallax Elimination by appending the Equation of the Center 
+ * (f - l) to the first-order generating function (S1), effectively 
+ * shielding the system from singularities at e = 0.
+ * 2. Series Expansion (closed_form = false): Applies standard orbital averaging 
+ * theory in Delaunay variables (averaging over mean anomaly 'l'). Ideal for 
+ * handling pre-processed external perturbations, such as Third-Body 
+ * effects expanded via Hansen coefficients.
+ *
+ * Parameters:
+ * max_order       (int): Maximum order of the Lie expansion (e.g., 2, 3, 4).
+ * f_input_list    (list): List of original Hamiltonians [F0, F1, F2...]. 
+ * Supports sub-lists [secular, periodic] if a term 
+ * has been pre-processed.
+ * vars_list       (list): List of canonical variables (e.g., [l, g, h, L, G, H]).
+ * avg_var         (sym): Integration variable for averaging (e.g., 'f' or 'l').
+ * n_avg           (sym): Fundamental frequency (e.g., mean motion 'n_mean').
+ * max_order_s     (int): Maximum order for the explicit calculation of 
+ * generating functions.
+ * closed_form     (bool): If true, solves in closed form (exact in e). 
+ * If false, uses Taylor/Poisson series expansion.
+ * [opt_args]      (opts): 1. order_e: Truncation order for eccentricity.
+ * 2. trunc_gen: (bool) Truncate generating functions?
+ * 3. order_trunc_gen: Truncation order for gen. functions.
+ *
+ * Returns:
+ * A list containing two arrays: [list(f_star), list(s_gen)]
+ * [1] f_star: The transformed Hamiltonians F_n* (Secular/Mean Energies).
+ * [2] s_gen:  The Generating Functions S_n.
+ *
+ * Architectural Notes:
+ * - Employs aggressive memory management (Garbage Collection via 'gc()' and 
+ * 'kill(labels)') to prevent Lisp Heap exhaustion during the expansion of 
+ * complex symbolic trees in higher orders (>= 2).
+ * - In Closed-Form (Order 1), the function automatically restores time-geometry 
+ * canonicity by introducing the Equation of the Center (f - l) into S1, 
+ * consistent with classical literature (Deprit, 1981).
+ * - Designed for "Cascading Transformations": the output of one call can be 
+ * seamlessly injected into another to perform successive averages (e.g., 
+ * eliminating 'f', then 'f_3', then 'h').
+ * ============================================================================ */
+solve_hori_deprit_recurrence(max_order, f_input_list, vars_list, avg_var, n_avg, max_order_s, closed_form, [opt_args]) := block(
+    [n, k, j, entry_term, g_brackets, parts, periodic_total, temp_to_avg, n_term_f, n_term_s,
+    order_e, trunc_gen, f_phys],
+
+    /*
+        [opt_args], because Maxima only allows one optional argument. To use more than one, a single 
+        name is used to capture all the extra arguments and then distribute them within the block.
+    */
+
+    /* extracting optional arguments from the 'opt_args' list */
+    order_e: if length(opt_args) >= 1 then opt_args[1] else false,
+    trunc_gen: if length(opt_args) >= 2 then opt_args[2] else false,
+    order_trunc_gen: if length(opt_args) >= 3 then opt_args[3] else false,
+
+    /* clear local/global cache */
+    kill(f_star, s_gen, B_cache, f_phys),
+    
+    /* prepare the dependencies ONLY if it is not a closed (or global) format. */
+    if not(closed_form) then (
+        setup_canonical_dependencies()
+    ),
+
+    /* calls analyticalutils memoization */    
+    setup_pb_cache(vars_list, closed_form),
+    
+    /* initial condition: order 0 (H0) */
+    f_star[0]: if listp(f_input_list[1]) then f_input_list[1][1] else f_input_list[1],
+    f_phys[0]: f_star[0],
+    B_cache[0, 0]: f_star[0], /* definition of the basis of the recursive triangle (Equation 12, Mersman, 1970) */
+    
+    if closed_form then (
+        r_expr: r_two_body_exact(e,a,f),
+        r_expr_eta: ratsubst(eta^2, 1-e^2, r_expr)
+    ),
+
+    print("=== Starting Hori-Deprit Method ==="),
+    if closed_form then (
+        print(" --- Closed Form ---"),
+        print(" - Average over:", avg_var)
+
+    ) else (
+        print("--- Series Expansion ---"),
+        print(" - Ecc Truncation order:", order_e),
+        print(" - Gen. function truncation order:", order_trunc_gen)
+    ),
+
+    for n: 1 thru max_order do (
+        print("Processing order ", n, "..."),
+
+        /* collection of the entry term (Fn) */
+        entry_term: f_input_list[n+1],
+
+        /* accumulation of brackets (Lie's series contribution) */
+        g_brackets: 0,
+        
+        /* contribution k >= 2 (higher-order curvature) */
+        for k: 2 thru n do (
+            B_cache[n, k]: compute_B(n, k, vars_list, max_order_s, closed_form, order_e),
+            g_brackets: g_brackets - B_cache[n, k] /* accumulation of the Lie series to compose the nth order (equation 13, Mersman, 1970) */
+        ),
+
+        /* contribution k = 1 (interaction between Hamiltonians and previous generatrices) */
+        if n > 1 then (
+            for j: 1 thru min(n - 1, max_order_s) do (
+                /* for closed_form, reconstruct the Lie base with the original physicist. */
+                ham_lie : f_star[n-j],
+                g_brackets: g_brackets - pb_memo(ham_lie, s_gen[j])
+            ),
+
+            /* expands the total sum of brackets only once */
+            g_brackets: ratexpand(g_brackets) /* ratexpand is necessary to avoid zeroing Fn*, n > 1 */      
+        ),
+
+        /* average and secular/periodic separation */
+        block([entrada_sec, entrada_per],
+            /* collects the input term (Fn) - checks if the user passed [sec, per] or a single term */
+            entrada_sec : if listp(entry_term) then entry_term[1] else entry_term,
+            entrada_per : if listp(entry_term) then entry_term[2] else 0,
+
+            /* g_brackets already contain the Lie couplings calculated in compute_B */
+            temp_to_avg: entrada_sec + g_brackets,
+
+            /* ---------------------------------------------------------------------------------
+            * AUTO-BYPASS OF PRE-SECULAR POTENTIALS (Ex: Third Body via Hansen)
+            * If 'temp_to_avg' is already secularized with respect to 'r' (does not possess the primary geometric variable), the prepare_potential_closedform routine will not execute
+            * no replacement and will act only as a safe pass-through, maintaining the integrity of terms from distant disturbing bodies (r_3)
+            * --------------------------------------------------------------------------------- */
+
+            temp_to_avg: prepare_potential_closedform(temp_to_avg, 1, r, r_expr_eta),
+            /* average: works for series (l) or closed form (f)*/
+            parts : map_average(temp_to_avg, avg_var),
+
+            f_star[n] : parts[1], 
+            f_star[n] : sanitize_hamiltonian_expression(f_star[n], closed_form, order_e),
+            
+            /* the total periodic part is the sum of the original perturbation plus Lie couplings */
+            periodic_total: entrada_per + parts[2],
+
+            /* generation of s_n (generating function) */
+            if n <= max_order_s then (
+                /* if there is no periodic part, the generator is zero */
+                if periodic_total = 0 then (
+                    s_gen[n]: 0
+                    
+                ) else (
+                    /* quadrature of the periodic part */
+                    s_gen[n]: -generating_function_quadrature(periodic_total, avg_var) / n_avg,
+
+                    /*s_gen[n]: clean_atan2(s_gen[n]),*/
+                    s_gen[n]: sanitize_hamiltonian_expression(s_gen[n], closed_form, order_trunc_gen),
+ 
+                    /* eccentricity truncation */
+                    if trunc_gen then (
+                        if closed_form then
+                            s_gen[n]: truncate_closed_form(s_gen[n], order_trunc_gen)
+                        else
+                            s_gen[n]: truncate_ecc_keplerian(s_gen[n], order_trunc_gen)
+                    )
+                )
+            ) else (
+                s_gen[n]: 0
+            )       
+        ),
+
+        /* Apply variable mapping once per order (series mode only) */
+        if not(closed_form) then (
+            f_star[n]: subst([
+                cos(i) = cos_i, 
+                sin(i)^2 = (1 - cos_i^2),
+                a = L^2/mu, 
+                H = G*cos_i
+            ], f_star[n]),
+            f_star[n]: ratsimp(f_star[n]),
+            
+            if n <= max_order_s then
+                s_gen[n]: subst([
+                    cos(i) = cos_i, 
+                    sin(i)^2 = (1 - cos_i^2),
+                    a = L^2/mu, 
+                    H = G*cos_i
+                ], s_gen[n])
+        ),
+
+        /* f_star statistics */
+        n_term_f : nterms(f_star[n]),
+        print("  > Statistics f_star[", n, "]: ", n_term_f, " terms"), 
+
+        B_cache[n, 0]: f_star[n], /* updating the zero column with the transformed Hamiltonian (Equation 12, Mersman, 1970) */
+
+        /* s_gen statistics */
+        n_term_s : nterms(s_gen[n]),
+        print("  > Statistics s_gen[", n, "]: ", n_term_s, " terms"), 
+
+        /* cache for B(n,1) */
+        if n < max_order then (
+            temp_sum: 0,
+            for j: 1 thru min(n, max_order_s) do (
+                ham_lie : f_star[n-j],
+                temp_sum: temp_sum + pb_memo(ham_lie, s_gen[j]),
+
+                B_cache[n, 1]: sanitize_hamiltonian_expression(temp_sum, closed_form, order_e)
+            )         
+        ),
+
+        print(" -> f_star[", n, "] ok"),
+
+        /* aggressive temporary memory cleanup */
+        kill(labels), /* remove the history of %i and %o that Maxima keeps */
+        if n > 1 then gc() /* activates the Lisp Garbage Collector */
+
+        /*
+            kill(labels): Maxima stores each intermediate step in memory so you can call them with %. In a 3rd order loop,
+            this stores thousands of useless expressions.
+
+            gc(): Maxima runs on Lisp. Lisp doesn't always clear memory immediately when a variable is discarded. The gc() function forces this 
+            cleanup, which usually "empties" the RAM usage you see in the task manager.
+        */
+    ),
+
+    if not(closed_form) then (
+        teardown_canonical_dependencies(),
+        
+        /* Post-processing: eliminate G from secular Hamiltonians
+           to remove spurious 1/e^2 singularities */
+        for n: 1 thru max_order do (
+            f_star[n]: subst(G = L*sqrt(1-e^2), f_star[n]),
+            f_star[n]: taylor(f_star[n], e, 0, order_e),
+            f_star[n]: ratdisrep(f_star[n]),
+            f_star[n]: ratsimp(f_star[n]),
+            s_gen[n]: trigsimp(s_gen[n]),
+            s_gen[n]: ratsimp(s_gen[n])
+        )
+    ),
+
+    print("=== Algorithm completed ==="),
+    return([listarray(f_star), listarray(s_gen)])
+)$
+
+
+/* ============================================================================
+ * FUNCTION: apply_lie_corrections
+ * ============================================================================
+ * Description:
+ * Computes the periodic corrections (short and long-period variations) for 
+ * orbital elements using the Lie series operator. This function maps mean 
+ * elements to osculating elements (direct transform) or vice-versa (inverse 
+ * transform) by evaluating the Lie series displacement.
+ *
+ * Parameters:
+ * mean_element    (expr/list): The symbolic element(s) to be transformed 
+ * (e.g., a, e, i, g, h, l).
+ * s_gen_list      (list): The list of generating functions [S1, S2, ...] 
+ * produced by the Hori-Deprit solver.
+ * vars_list       (list): Canonical variables for the Poisson Brackets.
+ * closed_form     (bool): If true, uses the closed-form Poisson engine.
+ * [inverse_opt]   (bool): Optional. If true, performs the inverse 
+ * transformation (osculating -> mean) by negating the 
+ * generating functions.
+ *
+ * Returns:
+ * The total periodic displacement (Delta) for the given element(s). 
+ * The osculating element is then X_osc = X_mean + Delta.
+ *
+ * Internal Logic:
+ * - Implements the Lie series recurrence: 
+ * X_n = (1/n) * sum_{j=1}^{n} {X_{n-j}, S_j}
+ * - Starts with X_0 as the identity term.
+ * - Sums terms from order 1 to N to obtain the total correction.
+ * - Supports mapping over lists of elements for batch processing.
+ * ============================================================================ */
+apply_lie_corrections(mean_element, s_gen_list, vars_list, closed_form, [inverse_opt]) := block(
+    [internal_transform, is_inverse],
+    
+    is_inverse: if length(inverse_opt) > 0 then inverse_opt[1] else false,
+
+    internal_transform(expr) := block(
+        [n, k, max_order, s_list, x_triangle, total_sum],
+        local(x_triangle),
+        max_order: length(s_gen_list),
+        
+        s_list: if is_inverse then map("-", s_gen_list) else s_gen_list,
+        
+        /* Initializes column zero (k=0) of the triangle for variables */
+        x_triangle[0,0] : expr,
+        for n:1 thru max_order do (
+            x_triangle[n,0] : 0
+        ),
+        
+        /* Populate the Lie Triangle using Mersman/Deprit recursion */
+        for n:1 thru max_order do (
+            for k:1 thru n do (
+                x_triangle[n,k]: 0,
+                for j:1 thru min(n - k + 1, max_order) do (
+                    /* Direct use of the Poisson parenthesis. Evaluate whether using compute_B has any advantages in the future. */
+                    x_triangle[n,k]: x_triangle[n,k] + poisson_bracket(x_triangle[n-j, k-1], s_list[j], vars_list, closed_form)
+                ),
+                x_triangle[n,k]: x_triangle[n,k] / k,
+
+                if closed_form then
+                    x_triangle[n,k] /*: ratsimp(x_triangle[n,k])*/
+            )
+        ),
+        
+        /* The total correction is the sum of all the elements of the triangle */
+        total_sum: 0,
+        for n:1 thru max_order do (
+            for k:1 thru n do (
+                total_sum: total_sum + x_triangle[n,k]
+            )
+        ),
+        return(total_sum)
+    ),
+
+    if listp(mean_element) then 
+        map(internal_transform, mean_element)
+    else 
+        internal_transform(mean_element)
+)$
+

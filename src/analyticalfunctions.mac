@@ -1,0 +1,635 @@
+/* analyticalfunctions.mac */
+
+/* turn off reset warnings to load the package cleanly */
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+
+/* ============================================================================
+ FUNCTION: setup_canonical_dependencies
+ Description:configures the symbolic differentiation engine of maxima by 
+ * establishing functional dependencies and custom derivative rules gradefs for 
+ * orbital mechanics. this allows the poisson bracket engine to automatically apply 
+ * the chain rule across different coordinate systems e.g. from delaunay 
+ * actions to keplerian geometry.
+ * key configurations
+ * 1. delaunay kepler mapping defines derivatives of eccentricity e 
+ * semi major axis a and inclination i with respect to delaunay 
+ * actions l g h.
+ * 2. orbital geometry dna establishes the exact partial derivatives for 
+ * the radius r and true anomaly f.
+ * 3. closed form jacobian implements the exact transformation between the 
+ * true anomaly f and mean anomaly l including the df de variation 
+ * at constant l.
+ * 4. homogeneous formalism sets up time dependent rules for third body 
+ * anomalies l_3 l_o and planetary rotation theta relative to the 
+ * independent variable tau.
+ * technical note
+ * this setup is essential for closed form theories where derivatives 
+ * involving the true anomaly must be handled without series expansion.
+ Parameters: none
+ * ============================================================================ */
+setup_canonical_dependencies() := (
+    depends(a, L), depends(e, [L, G]), depends(i, [G, H]),
+    depends(r, [a, e, f]), depends(sin_i, [G, H]),
+    depends(cos_i, [G, H]), depends(eta, [L, G]),
+    depends(f, [l, e]),
+
+    /* derivative of e with respect to l */
+    gradef(e, L, (1 - e^2) / (L * e)),
+
+    /* derivative of e with respect to g */
+    gradef(e, G, -G / (L^2 * e)),
+
+    /* derivative of sin i with respect to g */
+    gradef(sin_i, G, ( H^2) / (G^3 * sin_i)),
+    /* derivative of sin i with respect to h */
+    gradef(sin_i, H, (-H) / (G^2 * sin_i)),
+
+    /* derivative of cos i with respect to g */
+    gradef(cos_i, G, -H/(G^2)),
+    /* derivative of cos i with respect to h */
+    gradef(cos_i, H, 1/G),
+
+    /* delaunay to kepler */
+    /* derivative of a with respect to l */
+    gradef(a, L, 2*a/L),
+    /* derivative of i with respect to g */
+    gradef(i, G, cot(i)/G),
+    /* derivative of i with respect to h */
+    gradef(i, H, -1/(G * sin(i))),
+
+    /* ----------------------------- */
+    gradef(r, a, r/a),
+    /* derivative of r with respect to e */
+    gradef(r, e, -r * (cos(f) + e) / (1 - e^2)),
+    /* derivative of r with respect to f */
+    gradef(r, f, (r^2 * e * sin(f)) / (a * (1 - e^2))),
+
+    /* ----------------------------- */
+    /* derivative of eta with respect to l */
+    gradef(eta, L, (-G^2) / (L^3 * eta)),
+    /* derivative of eta with respect to g */
+    gradef(eta, G, G / (L^2 * eta)),
+
+    /* ----------------------------- */
+    /* rules for homogeneous formalism */
+    /* truncated mode in eccentricity */
+    /* derivative of l_3 with respect to t */
+    gradef(l_3, tau, n_3),
+    /* derivative of l_o with respect to t */
+    gradef(l_o, tau, n_o),
+    /* derivative of l with respect to t */
+    gradef(l, tau, n),
+
+    /* for tesseral harmonics in the inertial frame of reference */
+    gradef(theta, tau, w_rot), /* theta equals w_rot tau */
+
+    print("canonical dependencies activated.")
+)$
+
+/* ============================================================================
+ FUNCTION: teardown_canonical_dependencies
+ Description:cleans the symbolic environment by removing all functional 
+ * dependencies previously established by setup canonical dependencies.
+ * usage should be called at the end of a solver run or when switching between 
+ * different dynamical models to prevent unwanted derivative cross talk or 
+ * memory overhead in the symbolic tree.
+ Parameters: none
+ * ============================================================================ */
+teardown_canonical_dependencies() := (
+    
+    remove(f, dependency), remove(r, dependency),
+    remove(a, dependency), remove(e, dependency),
+    remove(eta, dependency), remove(i, dependency),
+    remove(sin_i, dependency), remove(cos_i, dependency),
+    
+
+    remove(l_3, dependency), remove(l_o, dependency),
+    remove(l, dependency), remove(theta, dependency),
+
+    print("canonical dependencies deactivated.")
+)$
+
+
+/* ============================================================================
+ FUNCTION: pb_series
+ Description:an optimized version of the series poisson bracket engine. it adopts the 
+ * linear extraction strategy from the closed form engine to improve 
+ * performance in high order expansions. by decoupling symbolic differentiation 
+ * from algebraic summation it reduces the computational overhead on the 
+ * expression tree.
+ Parameters:
+ * a: symbolic series to be bracketed
+ * b: symbolic series to be bracketed
+ * vars: canonical variables q p
+ * ============================================================================ */
+pb_series(A, B, Vars) := block(
+    [
+        n_dims: length(Vars)/2,
+        Aq: [], Ap: [], Bq: [], Bp: [],
+        PB: 0, i
+    ],
+    
+    if A = B then return(0),
+
+    /* 1. mass extraction effect pb closed */
+    /* we extract all derivatives before starting any algebra */
+    for i: 1 thru n_dims do (
+        Aq: endcons(diff(A, Vars[i]), Aq),
+        Ap: endcons(diff(A, Vars[i + n_dims]), Ap),
+        Bq: endcons(diff(B, Vars[i]), Bq),
+        Bp: endcons(diff(B, Vars[i + n_dims]), Bp)
+    ),
+
+    /* 2. linearized sum */
+    /* we use ratexpand to keep the polynomial series structure clean */
+    for i: 1 thru n_dims do (
+        PB: PB + Aq[i]*Bp[i] - Ap[i]*Bq[i]
+    ),
+
+    return(ratexpand(PB))
+)$
+
+
+/* ============================================================================
+ FUNCTION: pb_closed_form
+ Description:a high performance poisson bracket engine optimized for closed form orbital 
+ * theories. unlike the standard series pb this function treats the radius r 
+ * and true anomaly f as independent symbolic entities manually applying 
+ * the analytical chain rule to map them back to delaunay actions.
+ Parameters:
+ * a: symbolic expressions involving orbital parameters
+ * b: symbolic expressions involving orbital parameters
+ * vars: canonical variable list
+ * ============================================================================ */
+pb_closed_form(A, B, Vars) := block(
+    [
+        PB: 0, 
+        Ar, Af, Aa, Ae, Aeta, Ai, Ag, Ah, AG, AH,
+        Br, Bf, Ba, Be, Beta, Bi, Bg, Bh, BG, BH,
+        df_dl, dr_dl, dr_dL, dr_dG, df_dL, df_dG,
+        da_dL, de_dL, de_dG, deta_dL, deta_dG, di_dG, di_dH,
+        C_rf, C_ra, C_re, C_reta, C_fa, C_fe, C_feta,
+        C_rG, C_fG, C_eG, C_etaG, C_iG, C_iH,
+        extended: is(length(Vars) = 8)
+    ],
+     
+    if A = B then return(0),
+       
+    /* 2. explicit derivatives independent */
+    Ar: diff(A, r), Af: diff(A, f), Aa: diff(A, a), Ae: diff(A, e), 
+    Aeta: diff(A, eta), Ai: diff(A, i) + diff(A, sin_i)*cos_i - diff(A, cos_i)*sin_i,
+    Ag: diff(A, g), Ah: diff(A, h), AG: diff(A, G), AH: diff(A, H),
+    
+    Br: diff(B, r), Bf: diff(B, f), Ba: diff(B, a), Be: diff(B, e), 
+    Beta: diff(B, eta), Bi: diff(B, i) + diff(B, sin_i)*cos_i - diff(B, cos_i)*sin_i,
+    Bg: diff(B, g), Bh: diff(B, h), BG: diff(B, G), BH: diff(B, H),
+    
+    /* 3. monomial kinematics */
+    /* we eliminate the binomial 1 e cos f using the orbit equation.
+    purely monomial denominators avoid gcd explosion in ram */
+    
+    df_dl : (a^2 * eta) / r^2,
+    dr_dl : (a * e * sin(f)) / eta,
+    
+    da_dL : 2*a/L,
+    de_dL : eta^2 / (L * e),
+    deta_dL : -eta / L,
+    
+    de_dG : -eta / (L * e),
+    deta_dG : 1 / L,
+    
+    di_dG : cos_i / (L * eta * sin_i),
+    di_dH : -1 / (L * eta * sin_i),
+    
+    /* radial and angular derivatives in l and g keeping l constant */
+    dr_dL : 2*r/L - ((a - r) * eta^2) / (L * e^2),
+    dr_dG : ((a - r) * eta) / (L * e^2),
+    
+    df_dL : (sin(f) / (L * e)) * (1 + (a * eta^2) / r),
+    df_dG : -(sin(f) / (L * e * eta)) * (1 + (a * eta^2) / r),
+
+    df_de_exact : (sin(f) / (1 - e^2)) * (2 + e * cos(f)),
+    dr_de_exact : -a * cos(f), 
+
+    
+    /* 4. pre expanded fundamental scalars */
+    C_rf   : ratexpand( dr_dl * df_dL - dr_dL * df_dl ),
+    C_ra   : ratexpand( dr_dl * da_dL ),
+    C_re   : ratexpand( dr_dl * de_dL ),
+    C_reta : ratexpand( dr_dl * deta_dL ),
+    C_fa   : ratexpand( df_dl * da_dL ),
+    C_fe   : ratexpand( df_dl * de_dL ),
+    C_feta : ratexpand( df_dl * deta_dL ),
+    
+    C_rG   : ratexpand(dr_dG),
+    C_fG   : ratexpand(df_dG),
+    C_eG   : ratexpand(de_dG),
+    C_etaG : ratexpand(deta_dG),
+    C_iG   : ratexpand(di_dG),
+    C_iH   : ratexpand(di_dH),
+    
+    /* 5. the factored master equation */
+    PB : ratexpand( 
+        /* block l l */
+        C_rf * (Ar*Bf - Af*Br) 
+        + C_ra * (Ar*Ba - Aa*Br) 
+        + C_re * (Ar*Be - Ae*Br) 
+        + C_reta * (Ar*Beta - Aeta*Br) 
+        + C_fa * (Af*Ba - Aa*Bf) 
+        + C_fe * (Af*Be - Ae*Bf) 
+        + C_feta * (Af*Beta - Aeta*Bf)
+        
+        /* block g g */
+        + (Ag*BG - AG*Bg) 
+        + C_rG * (Ag*Br - Ar*Bg) 
+        + C_fG * (Ag*Bf - Af*Bg) 
+        + C_eG * (Ag*Be - Ae*Bg) 
+        + C_etaG * (Ag*Beta - Aeta*Bg) 
+        + C_iG * (Ag*Bi - Ai*Bg)
+        
+        /* block h h */
+        + (Ah*BH - AH*Bh) 
+        + C_iH * (Ah*Bi - Ai*Bh)
+    ),
+
+    if extended then block(
+        [Atau, AT, Btau, BT, Al3, Bl3, Ath, Bth,
+        tau_var: Vars[4], T_var: Vars[8]],
+        
+        /* pure partial derivatives */
+        Al3: diff(A, l_3),  Bl3: diff(B, l_3),
+        Ath: diff(A, theta), Bth: diff(B, theta),
+        AT:  diff(A, T_var), BT:  diff(B, T_var),
+        
+        /* chain rule d dtau equals n_3 d dl_3 plus w_rot d dtheta */
+        Atau: n_3*Al3 + w_rot*Ath,
+        Btau: n_3*Bl3 + w_rot*Bth,
+        
+        PB: PB + ratexpand(Atau*BT - AT*Btau),
+
+        PB : ratsubst(df_de_exact, 'diff(f, e), PB),
+        PB : ratsubst(dr_de_exact, 'diff(r, e), PB)
+    ),
+        
+    return(PB)
+)$
+
+
+/* ============================================================================
+ FUNCTION: poisson_bracket
+ Description:top level router for poisson bracket calculations. decouples the lie 
+ * solver logic from the specific kinematic implementation.
+ Parameters:
+ * a: expressions to be bracketed
+ * b: expressions to be bracketed
+ * vars: canonical variables
+ * is_closed_form: routing flag. if true triggers pb closed form 
+ * if false triggers pb series.
+ * ============================================================================ */
+poisson_bracket(A, B, Vars, is_closed_form) := block(
+    if is_closed_form then
+        return(pb_closed_form(A, B, Vars))
+    else
+        return(pb_series(A, B, Vars))
+)$
+
+
+/* ============================================================================
+ FUNCTION: generating_function_quadrature
+ Description:performs a high performance symbolic integration quadrature of periodic 
+ * hamiltonian terms to compute the generating function s. instead of using 
+ * the general purpose integrate engine it employs a frequency extraction 
+ * method in the complex exponential domain which is faster and more reliable 
+ * for trigonometric series.
+ Parameters:
+ * expr: the periodic part of the hamiltonian to be integrated
+ * var: the integration variable e.g. f or l
+ * ============================================================================ */
+generating_function_quadrature(expr, var) := block(
+    [temp, int_val, lista_termos, e_s, a_s, eta_s],
+
+    e_s : gensym("e_"), a_s : gensym("a_"), eta_s : gensym("eta_"),
+    temp : subst([e = e_s, a = a_s, eta = eta_s], expr),
+
+    temp : if freeof(%i, temp) then expand(exponentialize(temp)) else temp,
+    if (temp = 0) then return(0),
+
+    lista_termos : if not atom(temp) and op(temp) = "+" then args(temp) else [temp],
+
+    int_val : apply("+", map(lambda([u],
+        block([freq],
+            freq : ratsimp(diff(u, var) / u),
+            if freq = 0 then 0 else u / freq
+        )
+    ), lista_termos)),
+
+    temp : realpart(rectform(int_val)),
+
+    /* restores */
+    temp : subst([e_s = e, a_s = a, eta_s = eta], temp),
+    return(temp)
+)$
+
+
+
+
+/* defines the pattern for any expression */
+matchdeclare(aa, all)$
+
+/* ============================================================================
+ FUNCTION: celmec_trigexpand
+ Description:a specialized trigonometric expansion tool tailored for celestial mechanics. 
+ * it targets a specific variable usually an anomaly like f or l and 
+ * decomposes multiple angle trigonometric terms into powers of sines and 
+ * cosines while applying addition formulas to separate fast and slow 
+ * arguments.
+ Parameters:
+ * expr: the symbolic expression to be expanded
+ * v_target: the target variable e.g. true anomaly f whose 
+ * multiple angles will be expanded into powers
+ * ============================================================================ */
+celmec_trigexpand(expr, v_target) := block(
+    [rule_c, rule_s],
+    
+    /* activates the trigonometric expansion flags locally */
+    local(trigexpandplus, trigexpandtimes),
+    trigexpandplus: true,
+    trigexpandtimes: true,
+
+    /* cosine rule cos a plus n f */
+    rule_c: defrule(rc, cos(aa), 
+        block([c, rest, cv, sv],
+            c: coeff(aa, v_target),
+            rest: expand(aa - c*v_target),
+            /* expands cos c f and sin c f into powers */
+            cv: trigexpand(cos(c*v_target)),
+            sv: trigexpand(sin(c*v_target)),
+            cos(rest)*cv - sin(rest)*sv
+        )
+    ),
+    
+    /* sin rule sin a plus n f */
+    rule_s: defrule(rs, sin(aa), 
+        block([c, rest, cv, sv],
+            c: coeff(aa, v_target),
+            rest: expand(aa - c*v_target),
+            /* expands cos c f and sin c f into powers */
+            cv: trigexpand(cos(c*v_target)),
+            sv: trigexpand(sin(c*v_target)),
+            sin(rest)*cv + cos(rest)*sv
+        )
+    ),
+    
+    apply1(expr, rc, rs)
+)$
+
+/* ============================================================================
+ * FUNCTION: eliminate_parallax
+ * ============================================================================
+ * Description:
+ * Implements Deprit's elimination of the parallax (Deprit 1981) reformulated 
+ * in Delaunay variables following Lara, San-Juan & Lopez-Ochoa (2014, 2015).
+ *
+ * The transformation removes all short-period terms from the Hamiltonian 
+ * EXCEPT those proportional to 1/r^2, by exploiting the identity:
+ *   1/r^m = (1/r^2) * [(1 + e*cos(f))^(m-2)] / (a*eta^2)^(m-2),  m > 2
+ *
+ * Unlike a standard Delaunay normalization (which averages over l or f),
+ * the parallax elimination only removes the EXPLICIT appearance of f,
+ * preserving the implicit dependence through r. The resulting Hamiltonian
+ * H_{0,1} still contains short-period terms via the factor 1/r^2.
+ *
+ * Reference:
+ * - Deprit, A. (1981). Celest. Mech. 24(2), 111-153.
+ * - Lara, M., San-Juan, J.F., Lopez-Ochoa, L.M. (2015). Celest. Mech. Dyn. Astron.
+ * - Coffey, S. & Deprit, A. (1982). J. Guidance 5(4), 366-371.
+ *
+ * Parameters:
+ * U_raw       (expr): The raw perturbing potential in terms of (r, f, g, i).
+ *                     Must be proportional to 1/r^(n+1) for degree n.
+ * f_var     (symbol): The true anomaly variable (typically 'f').
+ * r_var     (symbol): The radius variable (typically 'r').
+ * a_var     (symbol): The semi-major axis variable.
+ * e_var     (symbol): The eccentricity variable.
+ * eta_var   (symbol): The eccentricity function sqrt(1-e^2).
+ * n_mean    (expr)  : The Keplerian mean motion (mu^2/L^3).
+ *
+ * Returns:
+ * A list [H_star, W_parallax] where:
+ *   H_star      : The simplified Hamiltonian (terms free of explicit f,
+ *                 still containing 1/r^2).
+ *   W_parallax  : The generating function of the parallax transformation.
+ *
+ * Usage Example:
+ * >> U2: derive_zonal_potential(2, mu, r, f, a, e, i, g, R, true);
+ * >> [H_par, W_par]: eliminate_parallax(U2, f, r, a, e, eta, mu^2/L^3);
+ * ============================================================================ */
+eliminate_parallax(U_raw, f_var, r_var, a_var, e_var, eta_var, n_mean) := block(
+    [
+        U_reduced, U_expanded, terms_list, H_star, H_per, 
+        W_par, term, jac_df_dl
+    ],
+    
+    /* ---------------------------------------------------------------
+     * Step 1: Reduce all powers of 1/r to 1/r^2 using the identity
+     *   1/r^m = (1/r^2) * (1 + e*cos(f))^(m-2) / (a*eta^2)^(m-2)
+     *
+     * Strategy: multiply U_raw by r^2, substitute r = a*eta^2/(1+e*cos(f)),
+     * expand trigonometrically, then divide back by r^2.
+     * This converts all (1/r^m) factors into (1/r^2) * polynomial_in_cos_f.
+     * --------------------------------------------------------------- */
+    
+    /* Multiply by r^2 to clear the 1/r^2 factor */
+    U_reduced: ratsimp(U_raw * r_var^2),
+    
+    /* Now substitute r = a*eta^2/(1+e*cos(f)) in the REMAINING r dependence.
+       After multiplying by r^2, the original 1/r^3 becomes 1/r, 
+       the 1/r^4 becomes 1/r^2 -> 1, etc.
+       So the remaining r factors get replaced. */
+    U_reduced: subst(r_var = a_var * eta_var^2 / (1 + e_var*cos(f_var)), U_reduced),
+    U_reduced: ratsimp(U_reduced),
+    
+    /* trigreduce to linearize into cos(kf + mg) form and simplification */
+    U_reduced: trigreduce(U_reduced),
+    U_reduced: ratexpand(U_reduced),
+    
+    /* ---------------------------------------------------------------
+     * Step 2: Separate into parallax-free and periodic parts.
+     *
+     * H_star gets terms FREE of the explicit true anomaly f.
+     * H_per  gets terms containing f explicitly.
+     *
+     * IMPORTANT: This is NOT an average. H_star retains the 1/r^2 
+     * factor (which will be restored), preserving implicit f-dependence.
+     * --------------------------------------------------------------- */
+    terms_list: args(U_reduced),
+    H_star: 0,
+    H_per: 0,
+    
+    for term in terms_list do (
+        if freeof(f_var, term) then
+            H_star: H_star + term
+        else
+            H_per: H_per + term
+    ),
+    
+    /* Restore the 1/r^2 factor */
+    H_star: H_star / r_var^2,
+    H_per:  H_per  / r_var^2,
+    
+    /* Simplify */
+    H_star: ratsimp(H_star),
+    H_per:  ratsimp(H_per),
+    
+    /* ---------------------------------------------------------------
+     * Step 3: Compute the generating function W by quadrature.
+     *
+     * From the homological equation: n * dW/dl = H_per
+     * Using the relation: a^2 * eta * dl = r^2 * df  (Eq. 21 of Lara)
+     * We get: dW/df = (H_per * r^2) / (n * a^2 * eta)
+     *
+     * But H_per already has the 1/r^2 factor, so:
+     * dW/df = H_per * r^2 / (n * a^2 * eta)
+     *       = [terms_periodic / r^2] * r^2 / (n * a^2 * eta)
+     *       = terms_periodic / (n * a^2 * eta)
+     *
+     * The integrand is a polynomial in cos(f) and sin(f), so the 
+     * quadrature is elementary.
+     * --------------------------------------------------------------- */
+    
+    /* Form the integrand: H_per * r^2 / (n_mean * a^2 * eta) 
+       = (periodic_terms/r^2) * r^2 / (n_mean * a^2 * eta)
+       = periodic_terms / (n_mean * a^2 * eta) */
+    
+    /* Use the generating_function_quadrature on the periodic part 
+       after multiplying by the Jacobian factor */
+    W_par: -generating_function_quadrature(H_per * r_var^2, f_var) / (n_mean * a_var^2 * eta_var),
+    
+    /* Sanitize */
+    W_par: sanitize_hamiltonian_expression(W_par, true, false),
+    H_star: sanitize_hamiltonian_expression(H_star, true, false),
+    
+    print("=== Parallax Elimination Complete ==="),
+    print("  H_star terms:", nterms(H_star)),
+    print("  W_par terms:", nterms(W_par)),
+    print("  Contains r:", not freeof(r_var, H_star)),
+    print("  Free of f:", freeof(f_var, H_star)),
+    
+    return([H_star, W_par])
+)$
+
+/* ============================================================================
+ * keplerian geometry closed form
+ * ============================================================================
+ Description:a collection of exact geometric relations for the two body problem. 
+ * these functions facilitate the analytical mapping between the different 
+ * anomalies mean eccentric and true and the radial distance without 
+ * relying on series expansions.
+ * ============================================================================ */
+
+
+/* ============================================================================
+ FUNCTION: sin_f_exact
+ Description:computes the sine of the true anomaly f as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+sin_f_exact(f_symb, e_symb, E_symb) := block(
+    [sin_f],
+
+    sin_f: ((1-e_symb^2)^(1/2)/(1-e_symb*cos(E_symb)))*sin(E_symb), 
+
+    return(sin_f)
+)$
+
+/* ============================================================================
+ FUNCTION: cos_f_exact
+ Description:computes the cosine of the true anomaly f as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+cos_f_exact(f_symb, e_symb, E_symb) := block(
+
+    [cos_f],
+
+    cos_f: (cos(E_symb) - e_symb)/(1-e_symb*cos(E_symb)),
+
+    return(cos_f)
+)$
+
+/* ============================================================================
+ FUNCTION: r_over_a_exact
+ Description:computes the normalized radial distance r a as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+r_over_a_exact(e_symb, E_symb) := block(
+
+    [r_a],
+
+    r_a: (1 - e_symb*cos(E_symb)),
+
+    return(r_a)
+)$
+
+/* ============================================================================
+ FUNCTION: r_two_body_exact
+ Description:computes the exact radial distance r in terms of the true anomaly f.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * a_symb: symbol for semi major axis
+ * f_symb: symbol for true anomaly
+ * ============================================================================ */
+r_two_body_exact(e_symb, a_symb, f_symb) := block(
+    [r],
+
+    r: a_symb*(1-e_symb^2)/(1+e_symb*cos(f_symb)),
+
+    return(r)
+)$
+
+/* ============================================================================
+ FUNCTION: dm_f
+ Description:computes the exact jacobian dm df representing the ratio between the 
+ * mean anomaly increment and the true anomaly increment.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * f_symb: symbol for true anomaly
+ * ============================================================================ */
+dM_f(e_symb, f_symb) := block(
+    [dM],
+
+    dM: (1 - e_symb^2)^(3/2) / (1 + e_symb * cos(f_symb))^2,
+    
+    return(dM)
+)$
+
+/* ============================================================================
+ FUNCTION: dm_avg_exact
+ Description:computes the exact jacobian dm de representing the ratio between the 
+ * mean anomaly increment and the eccentric anomaly increment derived 
+ * directly from keplers equation m equals e minus e sin e.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+dM_avg_exact(e_symb, E_symb) := block(
+    [dM],
+
+    dM: (1-e_symb*cos(E_symb)),
+
+    return(dM)
+)$

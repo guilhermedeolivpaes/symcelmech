@@ -1,0 +1,544 @@
+/* derivepotential.mac */
+
+suppress_trace_warnings: true$
+
+/* global package configurations */
+
+/* adds the directory of this own file mac to the search path file search maxima. 
+   this ensures it can find other packages such as series celestial mechanics mac 
+   that are in the same folder regardless of where the worksheet is. */
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+/* now a simple load works because maxima will look in the directory we just added. */
+load("analyticalfunctions.mac")$ /* for celmec trigexpand */
+load("celmechseries.mac")$
+
+/* loads the vect package for gradient jacobian calculations */
+load("vect")$
+
+/* loads orthopoly for pnm legendre p with 3 arguments */
+load("orthopoly")$
+
+/* removes the added path so as not to pollute the global environment permanently. */
+file_search_maxima: rest(file_search_maxima)$
+
+/* ============================================================================
+ FUNCTION: derive_zonal_potential
+ Description:computes the potential for zonal harmonics m=0 of degree n in 
+ * keplerian elements. matches the classical physics convention where 
+ * acceleration a = -grad u.
+ Parameters:
+ * n: degree of the harmonic
+ * mu: gravitational parameter
+ * r_var: radius variable scalar
+ * f: true anomaly
+ * a: semi major axis
+ * e: eccentricity
+ * i: inclination
+ * omega: argument of periapsis
+ * r: equatorial radius of the central body
+ * compact_vars: boolean flag. if true compacts constants into a single kn term.
+ * ============================================================================ */
+derive_zonal_potential(n, mu, r_var, f, a, e, i, omega, R, compact_vars) := block(
+    [jn, sin_phi, pn, U, k_n],
+
+    /* generates the jn symbol e.g. j2 j3 */
+    jn: concat('j, n),
+
+    /* sine of latitude sin phi = sin i * sin f + omega */
+    sin_phi: sin(i) * sin(f + omega),
+
+    /* legendre p requires the orthopoly package to be loaded */
+    pn: legendre_p(n, sin_phi),
+
+    /* generates the potential. u = mu * jn * r^n / r^n+1 * pn sin phi.  
+       note the potential is positive here because we use the physics convention 
+       for potential energy v = -u astro. since jn = -cn0 the signs cancel out */
+    U: mu * jn * (R^n / r_var^(n + 1)) * pn,
+
+    U: ratsubst(cos_i, cos(i), U),
+    U: ratsubst(sin_i, sin(i), U),
+
+    /* compacting physical constants */
+    if compact_vars then (
+        /* generates the kn name e.g. k2 k3 */
+        k_n: concat('k_j, n),
+        
+        /* substitutes in the potential */
+        U: ratsubst(k_n, jn * R^n * mu, U)
+    ),
+
+    return(U)
+)$
+
+/* defines r expr algebraic expression and r simplification symbol. 
+   these are global so the functions can use them. */
+r_expr: sqrt(x^2 + y^2 + z^2)$
+r2_expr: x^2 + y^2 + z^2$
+
+/* ============================================================================
+ FUNCTION: derive_cartesian_zonal_harmonic
+ Description:computes the potential and acceleration for zonal harmonics m=0 
+ * of degree n in cartesian coordinates.
+ Parameters:
+ * n: degree of the harmonic
+ * sep_coord: boolean flag. if true returns acceleration components ax ay az. 
+ * if false returns the scalar potential u.
+ * ============================================================================ */
+derive_cartesian_zonal_harmonic(n, sep_coord) := block(
+    [
+        jn, sin_theta, Pn_cart, U, U_expanded, U_simpl, 
+        U_grad, ax_simpl, ay_simpl, az_simpl
+    ],
+
+    /* defines the jn symbol e.g. j2 j3 */
+    jn: concat('j, n),
+
+    sin_theta: z / r_expr,
+    
+    /* gets the legendre polynomial e.g. 3*u^2-1 / 2 for n=2 */
+    Pn_cart: legendre_p(n, sin_theta),
+
+    /* generates the potential. u = mu * jn * r^n / r^n+1 * pn sin phi.  
+       note the potential is positive here because we use the physics convention 
+       for potential energy v = -u astro. since jn = -cn0 the signs cancel out */
+    U: (mu * R^n * jn) / (r_expr^(n+1)) * Pn_cart,
+
+    /* converts u into a purely algebraic expression */
+    /* this will expand r expr and simplify the polynomial */
+    U_expanded: trigexpand(U),
+
+    U_simpl: ratsubst(r, r_expr, U_expanded),
+
+    if sep_coord then (        
+
+        /* calculates the gradient now over a purely algebraic expression */
+        U_grad: jacobian([U_expanded], [x, y, z])[1],
+
+        /* remembering that a = -grad u */
+        ax_simpl: ratsubst(r, r_expr, -U_grad[1]),
+        ay_simpl: ratsubst(r, r_expr, -U_grad[2]),
+        az_simpl: ratsubst(r, r_expr, -U_grad[3]),
+
+        /* returns the factored equations */
+        return ([
+            subst((x^2+y^2+z^2)=r^2, factor(ax_simpl)),
+            subst((x^2+y^2+z^2)=r^2, factor(ay_simpl)),
+            subst((x^2+y^2+z^2)=r^2, factor(az_simpl))
+        ])
+    ) else (
+        return(factor(U_simpl))
+    )
+)$
+
+
+/* ============================================================================
+ FUNCTION: derive_tesseral_potential
+ Description:derives the tesseral potential cnm in terms of the true anomaly.
+ Parameters:
+ * n: degree of the harmonic
+ * m: order of the harmonic
+ * mu: gravitational parameter
+ * r: radius variable scalar
+ * f: true anomaly
+ * a: semi major axis
+ * e: eccentricity
+ * i: inclination
+ * omega: argument of periapsis
+ * omega: longitude of the ascending node
+ * r: equatorial radius of the central body
+ * compact_vars: boolean flag. if true compacts constants into a single kc term.
+ * frame: boolean flag. if true uses inertial frame. if false uses rotating frame.
+ * include_snm: boolean flag. if true includes snm terms.
+ * ============================================================================ */
+derive_tesseral_potential(n, m, mu, r, f, a, e, i, omega, Omega, R, compact_vars, frame, include_snm) := block(
+    [u, X_bf, Y_bf, Z_bf, p_nm_term, multipoles, z_var, u_pot, c_nm, s_nm, h_rel],
+
+    /* frame = true is inertial and frame = false is rotating */
+     
+    /* 1. definition of the longitude angle relative to the body */
+    /* in the inertial frame we subtract the rotation h - theta. in the rotating 
+       frame h is already the relative coordinate. theta = w rot * t */
+    h_rel : if frame then h - theta else h,
+
+    /* 2. coefficients cnm and snm are constant in the body frame */
+    c_nm: concat('C, n, m),
+    s_nm: concat('S, n, m),
+
+    /* zeros snm before heavy algebra begins */
+    if not include_snm then (
+        s_nm: 0
+    ),
+
+    /* 3. orbital geometry */
+    u: f + omega,
+    
+    /* 4. projection in body fixed directions */
+    X_bf: cos(u)*cos(h_rel) - sin(u)*cos(i)*sin(h_rel),
+    Y_bf: cos(u)*sin(h_rel) + sin(u)*cos(i)*cos(h_rel),
+    Z_bf: sin(u)*sin(i),
+
+    /* 5. latitude term legendre derivative */
+    p_nm_term: diff(legendre_p(n, z_var), z_var, m),
+    p_nm_term: subst(z_var = Z_bf, p_nm_term),
+
+    /* 6. multipole expansion via complex newton binomial */
+    /* equivalent to complexexpand re c - is * x + iy ^ m in mathematica.
+       this generates the cos m lambda and sin m lambda terms in a polynomial form. */
+    multipoles: realpart(expand((c_nm - %i*s_nm) * (X_bf + %i*Y_bf)^m)),
+
+    /* 7. assembly of the hamiltonian */
+    u_pot: -mu * (R^n / r^(n + 1)) * p_nm_term * multipoles,
+
+    /* 8. preparation for the lie deprit solver */
+    u_pot: ratsubst(cos_i, cos(i), u_pot),
+    u_pot: ratsubst(sin_i, sin(i), u_pot),
+
+    /* compaction of physical constants */
+    if compact_vars then (
+        /* generates the name k cnm e.g. k c22 k c31 */
+        k_c: concat('k_c, n, m),
+        u_pot: ratsubst(k_c, c_nm * R^n * mu, u_pot),
+        
+        /* only substitutes s nm if the include snm flag is true */
+        if include_snm then (
+            /* generates the name k snm e.g. k s22 k s31 */
+            k_s: concat('k_s, n, m),
+            u_pot: ratsubst(k_s, s_nm * R^n * mu, u_pot)
+        ),
+
+        u_pot: factor(u_pot)
+    ),
+
+    return(u_pot)
+)$
+
+/* ============================================================================
+ FUNCTION: derive_cartesian_inertial_tesseral_sectorial
+ Description:computes the gravitational potential or acceleration gradient for 
+ * tesseral and sectorial harmonics in a cartesian inertial frame.
+ Parameters:
+ * n: degree of the harmonic
+ * m: order of the harmonic
+ * t: time variable
+ * omega_rot: rotation rate of the body mean motion
+ * sep_coord: boolean flag. if true returns acceleration components ax ay az. 
+ * if false returns the scalar potential u.
+ * sep_cnm_snm: boolean flag. if true separates the output into cnm and snm parts.
+ * ============================================================================ */
+derive_cartesian_inertial_tesseral_sectorial(n, m, t, omega_rot, sep_coord, sep_cnm_snm) := block(
+    [
+        cnm, snm, sin_theta, 
+        lambda_inercial, theta_body, lambda_rot, 
+        Pnm_u, Pnm_cart, U, U_expanded, 
+        U_grad, U_simpl, 
+        ax_simpl, ay_simpl, az_simpl,
+        ax_cnm_simpl, ay_cnm_simpl, az_cnm_simpl,
+        ax_snm_simpl, ay_snm_simpl, az_snm_simpl,
+        U_cnm, U_snm
+    ],
+
+    /* 1. define cnm and snm symbols */
+    cnm: concat('c, n, m),
+    snm: concat('s, n, m),
+
+    /* 2. define inertial spherical coordinates */
+    sin_theta: z / r_expr,
+    lambda_inercial: atan2(y, x),
+    theta_body: omega_rot * t, /* omega rot is the mean motion n */
+    lambda_rot: lambda_inercial - theta_body, /* this is the longitude in the rotating frame */
+
+    /* 3. define the potential u in symbolic form */
+    Pnm_u: assoc_legendre_p(n, m, u),
+    Pnm_cart: ratsubst(sin_theta, u, Pnm_u),
+
+    /* 3c. build the formula for u using the rotating longitude lambda rot */
+    U: -(mu * R^n) / (r_expr^(n+1)) * Pnm_cart * (cnm * cos(m*lambda_rot) + snm * sin(m*lambda_rot)),
+
+    /* 4. expand u 
+       this will now generate explicit terms of sin omega rot t and cos omega rot t */
+    U_expanded: trigexpand(U),
+
+    /* 5. calculate the gradient grad u in inertial coordinates x y z */
+    U_grad: jacobian([U_expanded], [x, y, z])[1],
+
+    /* 6. substitute x^2+y^2+z^2 with r^2 for a clean output */
+    U_simpl: ratsubst(r, r_expr, U_expanded),
+
+    if sep_coord then (
+
+        if sep_cnm_snm then (
+            /* we extract components first to apply ratcoef safely to scalars */
+            ax_cnm_simpl: ratsubst(r, r_expr, cnm * ratcoef(-U_grad[1], cnm)),
+            ay_cnm_simpl: ratsubst(r, r_expr, cnm * ratcoef(-U_grad[2], cnm)),
+            az_cnm_simpl: ratsubst(r, r_expr, cnm * ratcoef(-U_grad[3], cnm)),
+            
+            ax_snm_simpl: ratsubst(r, r_expr, snm * ratcoef(-U_grad[1], snm)),
+            ay_snm_simpl: ratsubst(r, r_expr, snm * ratcoef(-U_grad[2], snm)),
+            az_snm_simpl: ratsubst(r, r_expr, snm * ratcoef(-U_grad[3], snm)),
+
+            /* 7. return the factored equations */
+            /* i used trigexpand again because in step 4 
+               maxima cannot expand atan2 when m > 1 
+               leaving atan2 explicit in the equations */
+            return ([
+                factor(trigexpand(ax_cnm_simpl)),
+                factor(trigexpand(ay_cnm_simpl)),
+                factor(trigexpand(az_cnm_simpl)),
+                factor(trigexpand(ax_snm_simpl)),
+                factor(trigexpand(ay_snm_simpl)),
+                factor(trigexpand(az_snm_simpl))
+            ])
+
+        ) else (
+            ax_simpl: ratsubst(r, r_expr, -U_grad[1]),
+            ay_simpl: ratsubst(r, r_expr, -U_grad[2]),
+            az_simpl: ratsubst(r, r_expr, -U_grad[3]),
+
+            /* 7. return the factored equations */
+            /* i used trigexpand again because in step 4 
+               maxima cannot expand atan2 when m > 1 
+               leaving atan2 explicit in the equations */
+            return ([
+                factor(trigexpand(ax_simpl)),
+                factor(trigexpand(ay_simpl)),
+                factor(trigexpand(az_simpl))
+            ])
+        )
+        
+    ) else (
+        if sep_cnm_snm then (
+            U_cnm: cnm * ratcoef(U_simpl, cnm),
+            U_snm: snm * ratcoef(U_simpl, snm),
+            return([factor(trigexpand(U_cnm)), factor(trigexpand(U_snm))])
+        ) else (
+            return(factor(trigexpand(U_simpl)))
+        )        
+    )    
+)$
+
+
+/* ============================================================================
+ FUNCTION: get_inertial_vector
+ Description:computes the inertial position vector given orbital elements.
+ Parameters:
+ * f: true anomaly
+ * omega: argument of periapsis
+ * omega: longitude of the ascending node
+ * i: inclination
+ * ============================================================================ */
+get_inertial_vector(f, omega, Omega, i) := block(
+    [u, cu, su, cOmega, sOmega, ci, si],
+    u: f + omega,
+    cu: cos(u), su: sin(u),
+    cOmega: cos(Omega), sOmega: sin(Omega),
+    ci: cos(i), si: sin(i),
+    
+    [
+     cOmega * cu - sOmega * su * ci,
+     sOmega * cu + cOmega * su * ci,
+     su * si
+    ]
+)$
+
+
+/* ============================================================================
+ FUNCTION: get_general_third_body_factors
+ Description:computes the geometric factors for the third body perturbation.
+ Parameters:
+ * n: degree of the harmonic
+ * mupert: gravitational parameter of the perturbing body
+ * rpert: radial distance of the perturbing body
+ * fpert: true anomaly of the perturbing body
+ * omegapert: argument of periapsis of the perturbing body
+ * omegapert: longitude of the ascending node of the perturbing body
+ * ipert: inclination of the perturbing body
+ * rsat: radial distance of the satellite
+ * fsat: true anomaly of the satellite
+ * omegasat: argument of periapsis of the satellite
+ * omegasat: longitude of the ascending node of the satellite
+ * isat: inclination of the satellite
+ * ============================================================================ */
+get_general_third_body_factors(n, muPert, rPert, fPert, omegaPert, OmegaPert, iPert,
+                               rSat, fSat, omegaSat, OmegaSat, iSat) := block(
+    [posSat, posPert, cosPsi, Pn],
+
+    /* 1. unit vectors */
+    posSat:  get_inertial_vector(fSat,  omegaSat,  OmegaSat,  iSat),
+    posPert: get_inertial_vector(fPert, omegaPert, OmegaPert, iPert),
+
+    /* 2. dot product to find cos psi */
+    /* in maxima the . operator performs the dot product of lists */
+    cosPsi: posSat . posPert,
+
+    /* keeps in sum of cosines essential for analytical integration */
+    cosPsi: trigreduce(cosPsi),
+    
+    /* legendre p comes from the orthopoly package loaded in the header */
+    Pn: legendre_p(n, cosPsi),
+
+    [
+     muPert * rPert^-(n + 1),  /* c factor */
+     rSat^n,                   /* r factor */
+     Pn                        /* p factor */
+    ]
+)$
+
+
+/* ============================================================================
+ FUNCTION: derive_general_third_body
+ Description:computes the complete third body perturbing potential.
+ Parameters:
+ * orderecc: order of eccentricity not directly used here but kept for signature
+ * n: degree of the harmonic
+ * mu3: gravitational parameter of the perturbing body
+ * r3: radial distance of the perturbing body
+ * f3: true anomaly of the perturbing body
+ * a3: semi major axis of the perturbing body
+ * e3: eccentricity of the perturbing body
+ * i3: inclination of the perturbing body
+ * omega3: argument of periapsis of the perturbing body
+ * omega3: longitude of the ascending node of the perturbing body
+ * r: radial distance of the satellite
+ * f: true anomaly of the satellite
+ * a: semi major axis of the satellite
+ * e: eccentricity of the satellite
+ * i: inclination of the satellite
+ * omega: argument of periapsis of the satellite
+ * omega: longitude of the ascending node of the satellite
+ * ============================================================================ */
+derive_general_third_body(orderEcc, n, mu3, r3, f3, a3, e3, i3, omega3, Omega3, r, f, a, e, i, omega, Omega) := block(
+    [factors, Cfac, rFac, Pfac, U],
+
+    print("1. calculating vector geometry symbolic in f and r..."),
+
+    factors: get_general_third_body_factors(
+        n, mu3, r3, f3, omega3, Omega3, i3,
+        r, f, omega, Omega, i
+    ),
+
+    Cfac: factors[1], 
+    rFac: factors[2], 
+    Pfac: factors[3],
+
+    U: -Cfac * rFac * Pfac,
+
+    print("2. process completed."),
+    return(U)
+)$
+
+/* ============================================================================
+ FUNCTION: derive_srp_potential
+ Description:computes the solar radiation pressure srp perturbing potential.
+ Parameters:
+ * r: radial distance of the satellite
+ * a: semi major axis of the satellite
+ * e: eccentricity of the satellite
+ * i: inclination of the satellite
+ * f: true anomaly of the satellite
+ * g: argument of periapsis of the satellite
+ * h: longitude of the ascending node of the satellite
+ * musun: gravitational parameter of the sun
+ * beta: srp coefficient
+ * rsun: radial distance of the sun
+ * asun: semi major axis of the sun
+ * esun: eccentricity of the sun
+ * isun: inclination of the sun
+ * fsun: true anomaly of the sun
+ * gsun: argument of periapsis of the sun
+ * hsun: longitude of the ascending node of the sun
+ * ============================================================================ */
+derive_srp_potential(r, a, e, i, f, g, h, muSun, beta, rSun, aSun, eSun, iSun, fSun, gSun, hSun) := block(
+    [COSI, SENI, A, B, C, D, EE, cosPsi, U],
+
+    /* orbital geometry */
+    COSI : cos(i),
+    SENI : sin(i),
+
+    A  : 1/4 * (1 + COSI) * (1 - cos(iSun)),
+    B  : 1/4 * (1 - COSI) * (1 + cos(iSun)),
+    C  : 1/4 * (1 + COSI) * (1 + cos(iSun)),
+    D  : 1/4 * (1 - COSI) * (1 - cos(iSun)),
+    EE : 1/2 * SENI * sin(iSun),
+
+    print("1. assembling cos psi..."),
+    
+    /* exact cos psi */
+    cosPsi :
+        C * cos(f + g + h - fSun - gSun - hSun) +
+        A * cos(f + g + h + fSun + gSun - hSun) +
+        B * cos(f + g - h + fSun + gSun + hSun) +
+        D * cos(f + g - h - fSun - gSun + hSun) +
+        EE * (cos(f + g - fSun - gSun) - cos(f + g + fSun + gSun)),
+
+    print("2. assembling the potential..."),
+    /* exact srp potential */
+    U : beta * muSun * (r / rSun^2) * cosPsi,
+
+    U: ratsubst(cos_i, cos(i), U),
+    U: ratsubst(sin_i, sin(i), U),
+
+    
+    print("3. process completed."),
+    return(U)
+)$
+
+/* ============================================================================
+ FUNCTION: prepare_potential_poisson
+ Description:prepares the potential for poisson series expansion.
+ Parameters:
+ * expr: original potential expression
+ * order_e: truncation order for eccentricity
+ * m_symb: symbol for mean anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb: symbol for eccentric anomaly
+ * f_symb: symbol for true anomaly
+ * r_symb: symbol for radial distance
+ * r_expr: expression to substitute for r_symb
+ * ============================================================================ */
+prepare_potential_poisson(expr, order_e, M_symb, e_symb, E_symb, f_symb, r_symb, r_expr) := block(
+    [U, temp, cos_f, sin_f],
+    
+    U: subst(r_symb=r_expr, expr),
+    
+    cos_f: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
+    sin_f: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* 1. replaces r and f with the series in l and e */
+    temp: subst([cos(f_symb)=cos_f, sin(f_symb)=sin_f], celmec_trigexpand(U, f_symb)),    
+
+    /* 2. taylor series to truncate eccentricity */
+    temp: ratdisrep(taylor(temp, e_symb, 0, order_e)),    
+
+    /* 3. trigonometric linearization */
+    temp: trigreduce(temp),    
+
+    /* 4. final organization */
+    return(ratexpand(temp))
+)$
+
+/* ============================================================================
+ FUNCTION: prepare_potential_closedform
+ Description:prepares a perturbing potential for closed form orbital averaging. 
+ * the process involves substituting the radial distance r with its conic 
+ * expression multiplying by the jacobian of the transformation one dimensional 
+ * jacobian matrix and applying algebraic and trigonometric simplifications. 
+ * the output is a linearized expansion that facilitates the separation of 
+ * secular and periodic terms.
+ Parameters:
+ * expr: the original perturbing potential expression.
+ * jac: the jacobian of the transformation e.g. dl df.
+ * r_sym: symbol for radial distance.
+ * r_expr: the analytical expression for r radial distance.
+ * ============================================================================ */
+prepare_potential_closedform(expr, jac, r_sym, r_expr) := block(
+    [expr_r, expr_simp, expr_trig, expr_int, ci_s, si_s],
+    
+    ci_s : gensym("ci_"), si_s : gensym("si_"),
+    expr_r : subst([r_sym = r_expr, cos_i = ci_s, sin_i = si_s], expr * jac),
+    expr_simp : ratsimp(expr_r),
+    expr_trig : trigreduce(expr_simp),
+    expr_int : ratexpand(expr_trig),
+
+    return(subst([ci_s = cos_i, si_s = sin_i], expr_int))
+)$

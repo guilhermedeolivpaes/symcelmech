@@ -1,0 +1,467 @@
+/* algebraicutils.mac */
+
+/* turn off reset warnings to load the package cleanly */
+suppress_trace_warnings: true$
+
+/* adds the directory of this source file (.mac) to the maxima 
+ search path (file_search_maxima). 
+ this ensures that the interpreter can locate other internal 
+ packages (such as series_celestial_mechanics.mac) residing 
+ in the same folder, regardless of the worksheet's location. */
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+load("analyticalfunctions.mac")$ 
+
+/* ============================================================================
+ FUNCTION: setup_pb_cache
+ Description:
+ initializes and manages the memoization system for poisson bracket calculations.
+
+ Parameters:
+ vlist: the list of canonical variables to be used by the poisson bracket engine.
+ is_closed: routing flag for the poisson bracket engine.
+ ============================================================================ */
+setup_pb_cache(vlist, is_closed) := (
+    kill(_pb_hash, pb_memo),
+    
+    /* funmake creates the function structure by injecting the content of vlist and the flag in a closed form */
+    define(_pb_hash[f1, f2], funmake('poisson_bracket, [f1, f2, vlist, is_closed])),
+    
+    /* logical wrapper for managing antisymmetry and serial formats */
+    pb_memo(A, B) := block(
+        [gA, gB],
+        /* protection against void terms */
+        if A = 0 or B = 0 then return(0),
+        
+        /* converts to a general representation to avoid breaking the hash */
+        gA : ratdisrep(A),
+        gB : ratdisrep(B),
+        
+        if gA = gB then return(0),
+        
+        if orderlessp(gA, gB) then 
+            _pb_hash[gA, gB] 
+        else 
+            -_pb_hash[gB, gA]
+    )
+)$
+
+/* memoization in maxima, using square brackets instead of parentheses, transforms the function into an array function
+   or a table lookup function. unlike a regular function that reprocesses the code every time,
+   a function with memoization works like a notebook: the first time you request a calculation, maxima calculates and
+   notes the result; in subsequent times, it simply reads what it noted. */
+
+/* ============================================================================
+ FUNCTION: deatomize_parameters
+ Description:
+ returns a list of substitutions for orbital and physical parameters.
+
+ Parameters:
+ none
+ ============================================================================ */
+deatomize_parameters() :=block(
+    return(
+        [
+            cos_i=cos(i), 
+            sin_i=sin(i), 
+            eta^2=1-e^2,
+            eta=sqrt(1-e^2),
+            eta_3^2=1-e_3^2,
+            eta_3=sqrt(1-e_3^2),
+            eta_o^2=1-e_o^2,
+            eta_o=sqrt(1-e_o^2),
+            k_o=mu_o*beta,
+            theta=omega_rot*t,
+            w_rot=omega_rot,
+            n=sqrt(mu/(a^3)),
+            p=a*(1-e^2)
+        ]
+    )
+)$
+
+/* in lisp family languages like maxima, the block function always automatically returns the result of the last evaluated row.
+   this means we dont even need to use the return keyword, and we can simplify the entire function to a single line without declaring local variables. */
+
+/* ============================================================================
+ FUNCTION: deatomize_zonal_harmonics
+ Description:
+ returns a list of substitutions for zonal harmonics expansion.
+
+ Parameters:
+ n_0: initial index of the expansion.
+ n_f: final index of the expansion.
+ ============================================================================ */
+deatomize_zonal_harmonics(n_0, n_f) :=block(
+    makelist(
+        concat('k_j, n) = concat('j, n)*R^n*mu, 
+        n, 
+        n_0, 
+        n_f
+    )
+)$
+
+/* flatten to transform the sublists into a single flat list that the subst function can read.
+   to integrate s afterwards, simply put it into a list:
+   [
+       concat('k_c, n, m) = concat('c, n, m) * R^n * mu,
+       concat('k_s, n, m) = concat('s, n, m) * R^n * mu
+   ] */
+
+/* ============================================================================
+ FUNCTION: deatomize_tesseral_harmonics
+ Description:
+ returns a flat list of substitutions for tesseral harmonics.
+
+ Parameters:
+ n_0: initial index of the expansion.
+ n_f: final index of the expansion.
+ ============================================================================ */
+deatomize_tesseral_harmonics(n_0, n_f) := block(
+    flatten(
+        makelist(
+            makelist(
+                concat('k_c, n, m) = concat('c, n, m) * R^n * mu, 
+                m, 1, n
+            ),
+            n, n_0, n_f
+        )
+    )
+)$
+
+
+/* ============================================================================
+ FUNCTION: subst_for_julia
+ Description:
+ provides predefined sets of symbolic substitutions to bridge the gap between 
+ analytical derivations in maxima and numerical implementation in julia.
+
+ Parameters:
+ name_string: a string identifying the desired substitution set.
+ ============================================================================ */
+subst_for_julia(name_string) := block(
+    [name_up],
+    name_up: supcase(name_string),
+
+    /* the string must be entirely uppercase in the function. */
+    
+    if name_up = "SRP" then (
+        return([
+            a_o = a_sun, 
+            e_o = e_sun, 
+            i_o = i_sun, 
+            mu_o = mu_sun, 
+            l_o = l_sun,
+            g_o = g_sun,
+            h_o = h_sun,
+            eta_o = eta_sun,
+            lambda_o = lambda_sun,
+            n_o = sqrt(mu_sun/(a_sun^3))
+        ])
+    ) elseif name_up = "DELTOKEP" then (
+        return([
+            L = sqrt(mu*a),
+            G = sqrt(mu*a) * sqrt(1 - e^2), 
+            H = sqrt(mu*a) * sqrt(1 - e^2) * cos_i
+        ])
+    ) elseif name_up = "KEPTODEL" then (
+        return([
+            a = L^2/mu,
+            e = sqrt(1 - (G/L)^2),
+            cos_i = H/G,            
+            sin_i = sqrt(1 - (H/G)^2)
+        ])
+    ) elseif name_up = "TIME" then (
+        return([
+            l_3   = n_3 * t + l_3_0,
+            l_sun   = n_sun * t + l_sun_0
+        ])
+    )else (
+        print("error: replacement for ", name_string, " not found in the database."),
+        return([])
+    )
+)$
+
+
+/* ============================================================================
+ FUNCTION: coeff_of_term
+ Description:
+ extracts the cumulative numerical coefficient from a symbolic term.
+
+ Parameters:
+ u: the symbolic term to be analyzed.
+ ============================================================================ */
+coeff_of_term(u) := block(
+    [c: 1],
+    if numberp(u) then return(u),
+    if not(mapatom(u)) and op(u) = "*" then (
+        for f in args(u) do (
+            if numberp(f) then c: c * f
+            else if floatnump(f) then c: c * f
+        )
+    ) else if not(numberp(u)) then (
+        /* if it is neither a number nor a product, the coefficient is 1. */
+        c: 1
+    ),
+    return(c)
+)$
+
+/* ============================================================================
+ FUNCTION: chop_series
+ Description:
+ a precision filter used to control expression swell in high order series 
+ expansions by removing terms smaller than a specified tolerance.
+
+ Parameters:
+ expr: the symbolic series or expression to be filtered.
+ tol: the numerical threshold for truncation.
+ ============================================================================ */
+chop_series(expr, tol) := block(
+    [temp: expr, c],
+    if mapatom(expr) then (
+        if numberp(expr) and abs(expr) < tol then return(0) else return(expr)
+    ),
+    
+    if op(expr) = "+" then (
+        temp: 0,
+        for termo in args(expr) do (
+            c: coeff_of_term(termo),
+            /* it only filters if it is a comparable number */
+            if numberp(c) then (
+                if abs(c) > tol then temp: temp + termo
+            ) else (
+                temp: temp + termo /* keep going if you cannot determine the number */
+            )
+        )
+    ) else (
+        c: coeff_of_term(expr),
+        if numberp(c) and abs(c) < tol then temp: 0
+    ),
+    return(temp)
+)$
+
+/* ============================================================================
+ FUNCTION: sanitize_hamiltonian_expression_old
+ Description:
+ sanitizes, simplifies, and standardizes symbolic hamiltonian expressions.
+
+ Parameters:
+ expr: the symbolic expression to be processed.
+ is_closed: flag for applying advanced simplifications for closed form theories.
+ ecc_order: order for taylor expansion in eccentricity, or false.
+ ============================================================================ */
+sanitize_hamiltonian_expression_old(expr, is_closed, ecc_order) := block(
+    [temp: expr, tol: 1e-15],
+
+
+    temp : chop_series(temp, tol),
+
+    if is_closed then (
+        /* kill sin squared plus cos squared and group common denominators. */
+        temp : trigsimp(ratsimp(temp)),
+        
+        /* factor polynomials */
+        temp : factor(temp),
+
+        temp : ratsubst(eta^2, 1-e^2, temp),
+        temp : ratsubst(eta, G/L, temp)
+    ),
+
+
+    temp : ratsubst(G*sin_i, sqrt(G^2 - H^2), temp),
+    temp : ratsubst(L*e, sqrt(L^2 - G^2), temp),
+    temp : ratsubst(L*e, sqrt(L-G)*sqrt(L+G), temp),
+    
+    /* unifies inclination and semi axis. */
+    temp : subst([
+        cos(i) = cos_i, 
+        sin(i)^2 = (1 - cos_i^2),
+        cos(2*i) = (2*cos_i^2 - 1),
+        cos(4*i) = (8*cos_i^2*(cos_i^2 - 1) + 1),
+        a = L^2/mu, 
+        H = G*cos_i
+    ], temp),
+    
+    /* delaunay and s_gen identities */
+    temp : ratsubst(1 - cos_i^2, sin_i^2, temp),
+    temp : ratsubst(e, sqrt(1-G^2/L^2), temp),
+    temp : ratsubst(sin_i, sqrt(1-H^2/G^2), temp),
+    temp : ratsubst(L^2*e^2, L^2 - G^2, temp),
+    temp : ratsubst(L^2*(1-e^2), G^2, temp), 
+
+    /* taylor expansion */
+    if not(is_closed) and ecc_order # false then (
+        /* the ratdisrep here guarantees that taylor does not work with cre garbage. */
+        temp : ratdisrep(taylor(temp, e, 0, ecc_order))
+    ),
+    
+    /* returning a general representation for the hash table will not cause an error */
+    return(ratdisrep(temp))
+)$
+
+/* ============================================================================
+ FUNCTION: sanitize_hamiltonian_expression
+ Description:
+ sanitizes, simplifies, and standardizes symbolic hamiltonian expressions.
+
+ Parameters:
+ expr: the symbolic expression to be processed.
+ is_closed: flag for applying advanced simplifications for closed form theories.
+ ecc_order: order for taylor expansion in eccentricity, or false.
+ ============================================================================ */
+sanitize_hamiltonian_expression(expr, is_closed, ecc_order) := block(
+    [temp: expr, tol: 1e-15],
+
+    temp : chop_series(temp, tol),
+
+    if is_closed then (
+        temp : trigsimp(ratsimp(temp)),
+        temp : factor(temp),
+        temp : ratsubst(eta^2, 1-e^2, temp),
+        temp : ratsubst(eta, G/L, temp),
+
+        /* closed form specific delaunay identities */
+        temp : ratsubst(G*sin_i, sqrt(G^2 - H^2), temp),
+        temp : ratsubst(L*e, sqrt(L^2 - G^2), temp),
+        temp : ratsubst(L*e, sqrt(L-G)*sqrt(L+G), temp),
+        
+        temp : subst([
+            cos(i) = cos_i, 
+            sin(i)^2 = (1 - cos_i^2),
+            cos(2*i) = (2*cos_i^2 - 1),
+            cos(4*i) = (8*cos_i^2*(cos_i^2 - 1) + 1),
+            a = L^2/mu, 
+            H = G*cos_i
+        ], temp),
+        
+        temp : ratsubst(1 - cos_i^2, sin_i^2, temp),
+        temp : ratsubst(e, sqrt(1-G^2/L^2), temp),
+        temp : ratsubst(sin_i, sqrt(1-H^2/G^2), temp),
+        temp : ratsubst(L^2*e^2, L^2 - G^2, temp),
+        temp : ratsubst(L^2*(1-e^2), G^2, temp)
+
+        ) else (
+        /* Series mode: minimal sanitization - no substitutions.
+        Variable mapping (a, H, cos(i)) is applied once per order
+        at the final f_star[n] level, not on every intermediate B_{n,k}. */
+        if ecc_order # false then
+            temp : ratdisrep(taylor(temp, e, 0, ecc_order))
+    ),
+
+    return(ratdisrep(temp))
+)$
+
+/* ============================================================================
+ FUNCTION: clean_pb
+ Description:
+ simplifies the results of poisson bracket operations by enforcing the 
+ fundamental kinematic relationship between eccentricity and eta.
+
+ Parameters:
+ pb: the raw output from a poisson bracket calculation.
+ ============================================================================ */
+clean_pb(pb) := block(
+    [pb_simp, pb_eta, e_s, eta_s],
+
+    e_s : gensym("e_"),
+    eta_s : gensym("eta_"),
+
+    pb_simp : subst([e = e_s, eta = eta_s], pb),
+    pb_simp : trigsimp(ratsimp(pb_simp)),
+    pb_eta  : ratsubst(eta_s^2, 1 - e_s^2, factor(pb_simp)),
+
+    return(subst([e_s = e, eta_s = eta], pb_eta))
+)$
+
+/* ============================================================================
+ FUNCTION: get_keplerian_to_delaunay_rules
+ Description:
+ returns a list of inverse relations from keplerian to delaunay elements.
+
+ Parameters:
+ mu: the gravitational parameter.
+ ============================================================================ */
+get_keplerian_to_delaunay_rules(mu):=block(
+
+    /* declares local variable */
+    [delaunay_inv],
+
+    /* inverse relations */
+	assume(G>0, L>0),
+    
+	delaunay_inv: [
+	    a = L^2/mu,
+	    e^2 = 1 - (G/L)^2,
+	    e = sqrt(1 - (G/L)^2),
+	    cos(i) = H/G,            
+        sin(i) = sqrt(1 - (H/G)^2),
+        cos(i)^2 = (H/G)^2,
+        sin(i)^2 = 1 - (H/G)^2,
+        /* multiples in case trigexpand does not break everything */
+        cos(2*i) = 2*(H/G)^2 - 1,
+        sin(2*i) = 2*(H/G)*sqrt(1 - H^2/G^2),
+        cos(3*i) = 4*(H/G)^3 - 3*(H/G),
+        cos(4*i) = 8*(H/G)^4 - 8*(H/G)^2 + 1,
+        sin(3*i) = 3*sqrt(1 - H^2/G^2) - 4*(sqrt(1 - H^2/G^2))^3,
+        omega = g,
+        Omega = h,
+        M = l,
+        M_3 = l_3,
+        Omega_3 = h_3,
+        omega_3 = g_3,
+	    M_o = L_o,
+	    omega_o = g_o,
+	    Omega_o = h_o
+	],
+
+    return(delaunay_inv)
+)$
+
+/* ============================================================================================================= */
+/* ============================================================================================================= */
+/* ============================================================================================================= */
+
+/* ============================================================================
+ FUNCTION: get_delaunay_to_kepler_rules
+ Description:
+ returns a list of mapping rules from delaunay variables to keplerian elements.
+
+ Parameters:
+ mu_val: the gravitational parameter.
+ d_list: the list of delaunay elements.
+ k_list: the list of keplerian elements.
+ ============================================================================ */
+get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
+    [L, G, H, l, g, h, a, e, i, M, w, W, local_rules],
+    
+    /* unpacks the lists */
+    [L, G, H, l, g, h] : d_list,
+    [a, e, i, M, w, W] : k_list,
+
+    local_rules : [
+        /* canonical momenta to keplerian */
+        L^8 = mu_val^4 * a^4,
+        L^6 = mu_val^3 * a^3,
+        L^4 = mu_val^2 * a^2,
+        L^2 = mu_val * a,
+        L = sqrt(mu_val * a),
+        
+        G^4 = mu_val^2 * a^2 * (1 - e^2)^2,
+        G^2 = mu_val * a * (1 - e^2),
+        G = sqrt(mu_val * a * (1 - e^2)),
+        
+        H^2 = mu_val * a * (1 - e^2) * cos(i)^2,
+        H = sqrt(mu_val * a * (1 - e^2)) * cos(i),
+        
+        /* mixed relations */
+        G^2/L^2 = (1 - e^2),
+        H^2/G^2 = cos(i)^2,
+        sqrt(1 - G^2/L^2) = e,
+        
+        /* canonical angles to kepler */
+        l = M,
+        g = w,
+        h = W
+    ],
+    
+    return(local_rules)
+)$
