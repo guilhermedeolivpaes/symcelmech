@@ -9,7 +9,7 @@
    ============================================================================ */
 
 /* cos(f) series at order 2 should recover the classical expansion */
-ratdisrep(get_cos_f_series(0, M, e, E));
+subst(e = 0, ratdisrep(get_cos_f_series(1, M, e, E)));
 cos(M)$
 
 /* sin(f) series at order 0 is simply sin(M) */
