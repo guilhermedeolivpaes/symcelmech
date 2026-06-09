@@ -164,13 +164,17 @@ If you use `symcelmech` in your research, please cite the accompanying paper (un
 
 ```bibtex
 @article{paes2026symcelmech,
-  author  = {Paes, Guilherme de Oliveira},
-  title   = {symcelmech: An Open-Source Maxima Package for Analytical 
-             Celestial Mechanics Based on Lie Transformations},
+  author  = {Paes, Guilherme de Oliveira and Berton, Lilian and Vilhena de Moraes, Rodolpho},
+  title   = {A Hybrid Symbolic-Numerical Framework for Artificial Satellite 
+             Theory and Dynamics using Maxima and Julia},
   year    = {2026},
-  note    = {Manuscript under peer review}
+  note    = {Submitted to Springer Nature}
 }
 ```
+
+## Acknowledgements
+
+Parts of the documentation (docstrings), code comments, test scripts, and some code optimizations were drafted or suggested with assistance from AI language models (Claude, Anthropic and Gemini, Google) and subsequently reviewed and validated by the author. All scientific content, mathematical formulations, numerical methods, and architectural decisions are the author's own work.
 
 ## Author
 

@@ -1,0 +1,10 @@
+
+/* Maxima error log from tests in rtest_symcelmech.mac */
+
+/* Problem 2 */
+ratdisrep(get_cos_f_series(0,M,e,E));
+/* Erroneous Result?:
+cos(M)-e */ 
+/* Expected result: */
+cos(M);
+
