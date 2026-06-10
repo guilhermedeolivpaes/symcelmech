@@ -198,7 +198,7 @@ pb_closed_form(A, B, Vars) := block(
         da_dL, de_dL, de_dG, deta_dL, deta_dG, di_dG, di_dH,
         C_rf, C_ra, C_re, C_reta, C_fa, C_fe, C_feta,
         C_rG, C_fG, C_eG, C_etaG, C_iG, C_iH,
-        extended: is(length(Vars) > 6)
+        extended: is(length(Vars) = 8)
     ],
      
     if A = B then return(0),
@@ -281,38 +281,19 @@ pb_closed_form(A, B, Vars) := block(
     ),
 
     if extended then block(
-        [Atau: 0, Btau: 0, AT, BT, Ak, Bk, k,
-        n_core: 6,
-        n_total: length(Vars),
-        n_extra,
-        tau_var, T_var],
-
-        n_extra: (n_total - 8) / 2 + 2,  /* number of extra coordinate-frequency pairs */
-        tau_var: Vars[n_core/2 + 1],      /* tau is at position 4 */
-        T_var: Vars[n_total - n_extra + 1], /* T is conjugate to tau, last block */
-
-        tau_var: Vars[4],
-        T_var: Vars[length(Vars)/2 + 4],
-
-        AT: diff(A, T_var),
-        BT: diff(B, T_var),
-
-        /* chain rule: d/dtau = sum_k omega_k * d/d(extra_k) 
-           the gradef rules set by setup_extended_pairs handle this automatically */
-        Atau: diff(A, tau_var),
-        Btau: diff(B, tau_var),
-
+        [Atau, AT, Btau, BT, Al3, Bl3, Ath, Bth,
+        tau_var: Vars[4], T_var: Vars[8]],
+        
+        /* pure partial derivatives */
+        Al3: diff(A, l_3),  Bl3: diff(B, l_3),
+        Ath: diff(A, theta), Bth: diff(B, theta),
+        AT:  diff(A, T_var), BT:  diff(B, T_var),
+        
+        /* chain rule d dtau equals n_3 d dl_3 plus w_rot d dtheta */
+        Atau: n_3*Al3 + w_rot*Ath,
+        Btau: n_3*Bl3 + w_rot*Bth,
+        
         PB: PB + ratexpand(Atau*BT - AT*Btau),
-
-        /* extra pairs: {extra_k, P_k} brackets */
-        for k: 5 thru length(Vars)/2 do (
-            Ak: diff(A, Vars[k]),
-            Bk: diff(B, Vars[k]),
-            PB: PB + ratexpand(
-                Ak * diff(B, Vars[k + length(Vars)/2]) 
-              - diff(A, Vars[k + length(Vars)/2]) * Bk
-            )
-        ),
 
         PB : ratsubst(df_de_exact, 'diff(f, e), PB),
         PB : ratsubst(dr_de_exact, 'diff(r, e), PB)

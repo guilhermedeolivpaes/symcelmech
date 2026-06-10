@@ -203,5 +203,19 @@ generating_function_quadrature(sin(f), f);
 generating_function_quadrature(cos(2*f), f);
 sin(2*f)/2$
 
+/* --- TEST: PB with 8 variables is nonzero (backward compatibility) --- */
+(setup_extended_pairs([l_3, theta], [n_3, w_rot]),
+ vars_8: [l, g, h, tau, L, G, H, T],
+ A1: k_j2 / r^2 * (3*sin_i^2 * sin(f+g)^2 - 1),
+ B1: T + sin(l_3) * G,
+ pb_8: pb_closed_form(A1, B1, vars_8),
+ is(pb_8 # 0));
+true;
+
+/* --- TEST: PB antisymmetry with 8 variables --- */
+(pb_8_rev: pb_closed_form(B1, A1, vars_8),
+ ratsimp(pb_8 + pb_8_rev));
+0;
+
 'done;
 'done$
