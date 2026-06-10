@@ -1,0 +1,115 @@
+kill(all)$
+ratprint: false$
+load("symcelmech.mac")$
+
+/* ================================================================
+   TEST 1: Backward compatibility -- 8 variables (original case)
+   Reproduces the PB of the J2 geopotential with third-body terms
+   ================================================================ */
+print("=== TEST 1: 8 variables (backward compatibility) ===")$
+
+setup_extended_pairs([l_3, theta], [n_3, w_rot])$
+vars_8: [l, g, h, tau, L, G, H, T]$
+
+/* Fictitious Hamiltonian depending on f and the pair (tau, T) */
+A1: k_j2 / r^2 * (3*sin_i^2 * sin(f+g)^2 - 1)$
+B1: T + sin(l_3) * G$
+
+pb_8: pb_closed_form(A1, B1, vars_8)$
+print("PB 8 vars (nonzero?):", is(pb_8 # 0))$
+
+/* antisymmetry check */
+pb_8_rev: pb_closed_form(B1, A1, vars_8)$
+print("Antisymmetry 8 vars (must be 0):", ratsimp(pb_8 + pb_8_rev))$
+
+/* ================================================================
+   TEST 2: 10 variables -- extra pair (f_3, P_3)
+   ================================================================ */
+print("=== TEST 2: 10 variables ===")$
+
+setup_extended_pairs([f_3], [n_3])$
+vars_10: [l, g, h, tau, f_3, L, G, H, T, P_3]$
+
+A2: cos(f_3) * sin(f + g) * L^(-3)$
+B2: T + P_3$
+
+pb_10: pb_closed_form(A2, B2, vars_10)$
+print("PB 10 vars (nonzero?):", is(pb_10 # 0))$
+
+/* antisymmetry check */
+pb_10_rev: pb_closed_form(B2, A2, vars_10)$
+print("Antisymmetry 10 vars (must be 0):", ratsimp(pb_10 + pb_10_rev))$
+
+/* ================================================================
+   TEST 3: 12 variables -- extra pairs (f_3, P_3) and (f_o, P_o)
+   ================================================================ */
+print("=== TEST 3: 12 variables ===")$
+
+setup_extended_pairs([f_3, f_o], [n_3, n_o])$
+vars_12: [l, g, h, tau, f_3, f_o, L, G, H, T, P_3, P_o]$
+
+A3: cos(f_3) * sin(f_o) * sin(f + g) * L^(-3)$
+B3: T + P_3 + P_o$
+
+pb_12: pb_closed_form(A3, B3, vars_12)$
+print("PB 12 vars (nonzero?):", is(pb_12 # 0))$
+
+/* antisymmetry check */
+pb_12_rev: pb_closed_form(B3, A3, vars_12)$
+print("Antisymmetry 12 vars (must be 0):", ratsimp(pb_12 + pb_12_rev))$
+
+/* ================================================================
+   TEST 4: 14 variables -- (f_3, P_3), (theta, P_theta), (f_o, P_o)
+   ================================================================ */
+print("=== TEST 4: 14 variables ===")$
+
+setup_extended_pairs([f_3, theta, f_o], [n_3, w_rot, n_o])$
+vars_14: [l, g, h, tau, f_3, theta, f_o, L, G, H, T, P_3, P_theta, P_o]$
+
+A4: cos(f_3) * cos(theta) * sin(f_o) * L^(-3)$
+B4: T + P_3 + P_theta$
+
+pb_14: pb_closed_form(A4, B4, vars_14)$
+print("PB 14 vars (nonzero?):", is(pb_14 # 0))$
+
+/* antisymmetry check */
+pb_14_rev: pb_closed_form(B4, A4, vars_14)$
+print("Antisymmetry 14 vars (must be 0):", ratsimp(pb_14 + pb_14_rev))$
+
+/* ================================================================
+   TEST 5: Full P2 third-body cascade with secular terms in f_3
+   Verifies that the Hori-Deprit solver correctly averages over
+   the third-body true anomaly using 10 canonical variables.
+   ================================================================ */
+print("=== TEST 5: Full P2 third-body with 10 vars ===")$
+
+setup_canonical_dependencies()$
+setup_extended_pairs([f_3], [n_3])$
+
+kepler: -mu^2/(2*L^2)$
+F0: kepler$
+F1: T$
+
+r_expr: r_two_body_exact(e, a, f)$
+r_expr_eta: ratsubst(eta^2, 1-e^2, r_expr)$
+jac_eta: r^2 / (a^2 * eta)$
+
+/* full coplanar P2 third-body potential */
+U3b_test: derive_general_third_body(2, 2, mu_3, r_3, f_3, a_3, e_3, i_3, g_3, h_3,
+                                     r, f, a, e, i, g, h)$
+U3b_coplanar: subst([i_3=0, h_3=0, i=0, h=0], U3b_test)$
+U3b_prep: prepare_potential_closedform(U3b_coplanar, jac_eta, r, r_expr_eta)$
+U3b_avg: hansen_third_body_average(U3b_prep, f, jac_eta)$
+
+/* F2 now contains both secular and periodic parts in f_3 */
+F2_3b: [U3b_avg[1], U3b_avg[2]]$
+
+solve_hori_deprit_recurrence(
+    2, [F0, F1, F2_3b, 0], vars_10, f_3, n_3, 2, true, false
+)$
+
+print("f_star[2]:", f_star[2])$
+print("f_star[2] nonzero?:", is(f_star[2] # 0))$
+print("freeof(f_3, f_star[2]):", freeof(f_3, f_star[2]))$
+
+print("=== ALL TESTS COMPLETED ===")$
