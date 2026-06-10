@@ -27,23 +27,38 @@ An open-source Maxima package for analytical celestial mechanics based on Lie tr
 
 ### Option 1: Add to Maxima search path (recommended)
 
-Clone the repository:
+#### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/symcelmech.git
+git clone https://github.com/guilhermedeolivpaes/symcelmech.git
 ```
 
-Add the package directory to your `maxima-init.mac` (created automatically in `~/.maxima/` on Linux/macOS or `%USERPROFILE%/maxima/` on Windows):
+#### Step 2: Add to Maxima search path
+
+Edit (or create) the file `~/.maxima/maxima-init.mac` (Linux/macOS) or `%USERPROFILE%/maxima/maxima-init.mac` (Windows):
 
 ```maxima
-/* Add this line to your maxima-init.mac */
-file_search_maxima: cons("/path/to/symcelmech/", file_search_maxima)$
+file_search_maxima: cons("/full/path/to/symcelmech/###.mac", file_search_maxima)$
 ```
 
-Then, from any Maxima session:
+Replace `/full/path/to/symcelmech/` with the actual path to the cloned repository.
+
+#### Step 3: Load the package
+
+From any Maxima or wxMaxima session:
 
 ```maxima
 load("symcelmech")$
+```
+
+> **Note (wxMaxima users):** Make sure your current notebook/script file is saved before calling `load`. wxMaxima may fail to resolve paths if the working file has unsaved changes.
+
+#### Alternative: Load with full path
+
+If you prefer not to modify `maxima-init.mac`:
+
+```maxima
+load("/full/path/to/symcelmech/symcelmech.mac")$
 ```
 
 ### Option 2: Install via maxima-packages
@@ -174,7 +189,7 @@ If you use `symcelmech` in your research, please cite the accompanying paper (un
 
 ## Acknowledgements
 
-Parts of the documentation (docstrings), code comments, test scripts, and some code optimizations were drafted or suggested with assistance from AI language models (Claude, Anthropic and Gemini, Google) and subsequently reviewed and validated by the author. All scientific content, mathematical formulations, numerical methods, and architectural decisions are the author's own work.
+Parts of the documentation, code comments, test scripts, and some code optimizations were developed with assistance from AI language models (Claude/Anthropic and Gemini/Google) and reviewed by the author. All scientific content, mathematical formulations, and architectural decisions are the author's own work.
 
 ## Author
 
