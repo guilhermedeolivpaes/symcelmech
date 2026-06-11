@@ -57,3 +57,5 @@ git rm --cached rtest_symcelmech.ERR
 git add .gitignore
 git commit -m "chore: ignore Maxima test error logs"
 git push origin main
+
+rtest_symcelmech.mac
