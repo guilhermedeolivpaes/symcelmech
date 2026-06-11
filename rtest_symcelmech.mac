@@ -217,5 +217,74 @@ true;
  ratsimp(pb_8 + pb_8_rev));
 0;
 
+/* ============================================================================
+   test group 10: triaxial ellipsoid harmonics (derivepotential)
+   validation against Balmino (1994) eq. (70) / Fodde et al. (2023) eqs. (3)-(7)
+   Didymos: a=0.399 km, b=0.392 km, c=0.380 km, R=0.390 km
+   ============================================================================ */
+
+/* hardcoded Balmino eq. (70) recursive relations for validation */
+(block([aa:0.399, bb:0.392, cc:0.380, RR:0.390, R2],
+    R2: RR^2,
+    C20_ref: (1/(5*R2)) * (cc^2 - (aa^2 + bb^2)/2),
+    C22_ref: (1/(20*R2)) * (aa^2 - bb^2),
+    C40_ref: (15/7) * (C20_ref^2 + 2*C22_ref^2),
+    C42_ref: (5/7) * C20_ref * C22_ref,
+    C44_ref: (5/28) * C22_ref^2,
+    h4_test: estimate_harmonics_triaxial(0.399, 0.392, 0.380, 0.390, 4)),
+ 'done);
+'done$
+
+/* C20 from general formula matches Balmino eq. (70) */
+is(abs(float(h4_test[1][3]) - float(C20_ref)) < 1e-12);
+true$
+
+/* C22 from general formula matches Balmino eq. (70) */
+is(abs(float(h4_test[2][3]) - float(C22_ref)) < 1e-12);
+true$
+
+/* C40 from general formula matches Balmino eq. (70) */
+is(abs(float(h4_test[3][3]) - float(C40_ref)) < 1e-12);
+true$
+
+/* C42 from general formula matches Balmino eq. (70) */
+is(abs(float(h4_test[4][3]) - float(C42_ref)) < 1e-12);
+true$
+
+/* C44 from general formula matches Balmino eq. (70) */
+is(abs(float(h4_test[5][3]) - float(C44_ref)) < 1e-12);
+true$
+
+/* degree and order indices are correct */
+h4_test[1][1];
+2$
+
+h4_test[1][2];
+0$
+
+h4_test[3][1];
+4$
+
+h4_test[5][2];
+4$
+
+/* C20 sign is negative for oblate body (c < a) */
+is(float(h4_test[1][3]) < 0);
+true$
+
+/* C22 is positive when a > b */
+is(float(h4_test[2][3]) > 0);
+true$
+
+/* degree 8 returns 15 coefficients: sum_{l=1}^{4} (l+1) = 2+3+4+5 */
+(h8_test: estimate_harmonics_triaxial(0.399, 0.392, 0.380, 0.390, 8),
+ length(h8_test));
+14$
+
+/* C22 is independent of c (equatorial ellipticity only) */
+(h8_alt: estimate_harmonics_triaxial(0.399, 0.392, 0.290, 0.390, 8),
+ is(abs(float(h8_alt[2][3]) - float(h8_test[2][3])) < 1e-15));
+true$
+
 'done;
 'done$

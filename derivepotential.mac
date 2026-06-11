@@ -542,3 +542,163 @@ prepare_potential_closedform(expr, jac, r_sym, r_expr) := block(
 
     return(subst([ci_s = cos_i, si_s = sin_i], expr_int))
 )$
+
+/* ============================================================================
+ * function: estimate_harmonics_triaxial
+ * ============================================================================
+ * description: computes the unnormalized gravitational harmonic coefficients
+ * C_{2l,2m} for a homogeneous triaxial ellipsoid with semi-axes aa >= bb >= cc
+ * up to a specified maximum degree n_max (must be even).
+ *
+ * implements the exact closed-form formula of Balmino (1994), eq. (69):
+ *
+ *   C_{2l,2m} = (3 / R^{2l}) * [l! (2m)! / (2^{2l} (2l+3)(2l+1)!)]
+ *             * (2 - delta_{0m}) * (2l-2m)! / (2l+2m)!
+ *             * sum_k sum_s sum_p sum_q [...]
+ *             * a^{2(m-s+q)} b^{2(s+p-q)} c^{2(l-m-p)}
+ *
+ * for a triaxial ellipsoid, only even-degree and even-order terms are nonzero
+ * (all S_{lm} = 0 by symmetry).
+ *
+ * the low-degree results match the well-known relations (Balmino eq. 70,
+ * also used by Fodde et al. 2023 eqs. 3-7):
+ *   C20 = (1/(5 R^2)) (c^2 - (a^2+b^2)/2)
+ *   C22 = (1/(20 R^2)) (a^2 - b^2)
+ *   C40 = (15/7) (C20^2 + 2 C22^2)
+ *   C42 = (5/7) C20 C22
+ *   C44 = (5/28) C22^2
+ *
+ * parameters:
+ *   aa      (number): largest semi-axis (a >= b >= c)
+ *   bb      (number): intermediate semi-axis
+ *   cc      (number): smallest semi-axis (polar)
+ *   RR      (number): reference radius for normalization
+ *   n_max   (integer): maximum harmonic degree (must be even, >= 2)
+ *
+ * returns:
+ *   list of lists [[n, m, C_nm], ...] for all nonzero coefficients,
+ *   sorted by degree then order.
+ *
+ * references:
+ *   Balmino, G. (1994). Gravitational potential harmonics from the shape
+ *   of an homogeneous body. Celest. Mech. Dyn. Astron. 60, 331-364.
+ *   Equation (69), p. 347.
+ *
+ * usage example:
+ *   estimate_harmonics_triaxial(399, 392, 380, 390, 4);
+ * ============================================================================ */
+estimate_harmonics_triaxial(aa, bb, cc, RR, n_max) := block(
+    [results, l_max, l, m, k, s, p, q, C_val, prefactor, sum_kspq,
+     term_k, term_s, term_p, term_q, n_deg, m_ord, delta_0m],
+
+    if mod(n_max, 2) # 0 then error("n_max must be even"),
+
+    l_max: n_max / 2,
+    results: [],
+
+    for l: 1 thru l_max do (
+        for m: 0 thru l do (
+
+            n_deg: 2*l,
+            m_ord: 2*m,
+
+            /* kronecker delta */
+            delta_0m: if m = 0 then 1 else 0,
+
+            /* overall prefactor from Balmino (1994) eq. (69) */
+            prefactor: (3 / RR^(2*l))
+                      * (l! * (2*m)!) / (2^(2*l) * (2*l + 3) * (2*l + 1)!)
+                      * (2 - delta_0m)
+                      * (2*l - 2*m)! / (2*l + 2*m)!,
+
+            /* quadruple sum over k, s, p, q */
+            sum_kspq: 0,
+
+            for k: 0 thru l - m do (
+                term_k: ((-1)^k * (4*l - 2*k)!)
+                       / ((2*l - k)! * (2*l - 2*m - 2*k)!),
+
+                for s: 0 thru m do (
+                    term_s: ((-1)^s) / ((2*s)! * (2*m - 2*s)!),
+
+                    for p: 0 thru k do (
+                        term_p: (2*l - 2*m - 2*p)!
+                               / ((l - m - p)! * (k - p)!),
+
+                        for q: 0 thru p do (
+                            term_q: ((2*s + 2*p - 2*q)! * (2*m - 2*s + 2*q)!)
+                                   / (q! * (p - q)! * (s + p - q)! * (m - s + q)!),
+
+                            sum_kspq: sum_kspq
+                                    + term_k * term_s * term_p * term_q
+                                    * aa^(2*(m - s + q))
+                                    * bb^(2*(s + p - q))
+                                    * cc^(2*(l - m - p))
+                        )
+                    )
+                )
+            ),
+
+            C_val: prefactor * sum_kspq,
+
+            /* simplify if symbolic */
+            C_val: ratsimp(C_val),
+
+            results: endcons([n_deg, m_ord, C_val], results)
+        )
+    ),
+
+    return(results)
+)$
+
+/* ============================================================================
+ * function: estimate_harmonics_triaxial_recursive
+ * ============================================================================
+ * description: computes C_{2l,2m} using the recursive relations of Balmino
+ * (1994), eq. (70). this is faster and simpler but limited to degree 4.
+ * useful for quick verification.
+ *
+ * parameters:
+ *   aa, bb, cc  (number): semi-axes (a >= b >= c)
+ *   RR          (number): reference radius
+ *
+ * returns:
+ *   list of lists [[n, m, C_nm], ...]
+ * ============================================================================ */
+estimate_harmonics_triaxial_recursive(aa, bb, cc, RR) := block(
+    [C20, C22, C40, C42, C44, R2],
+
+    R2: RR^2,
+
+    /* balmino (1994) eq. (70) */
+    C20: (1 / (5 * R2)) * (cc^2 - (aa^2 + bb^2) / 2),
+    C22: (1 / (20 * R2)) * (aa^2 - bb^2),
+    C40: (15/7) * (C20^2 + 2 * C22^2),
+    C42: (5/7) * C20 * C22,
+    C44: (5/28) * C22^2,
+
+    return([
+        [2, 0, ratsimp(C20)],
+        [2, 2, ratsimp(C22)],
+        [4, 0, ratsimp(C40)],
+        [4, 2, ratsimp(C42)],
+        [4, 4, ratsimp(C44)]
+    ])
+)$
+
+/* ============================================================================
+ * function: print_harmonics
+ * ============================================================================
+ * description: pretty-prints a list of harmonic coefficients.
+ *
+ * parameters:
+ *   harm_list: output of estimate_harmonics_triaxial or the recursive version
+ * ============================================================================ */
+print_harmonics(harm_list) := block(
+    [entry],
+    printf(true, "~%~4a ~4a ~20a~%", "n", "m", "C_nm"),
+    printf(true, "~a~%", smake(30, "-")),
+    for entry in harm_list do (
+        printf(true, "~4d ~4d ~20,12e~%", entry[1], entry[2], float(entry[3]))
+    )
+)$
