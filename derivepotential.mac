@@ -652,41 +652,6 @@ estimate_harmonics_triaxial(aa, bb, cc, RR, n_max) := block(
 )$
 
 /* ============================================================================
- * function: estimate_harmonics_triaxial_recursive
- * ============================================================================
- * description: computes C_{2l,2m} using the recursive relations of Balmino
- * (1994), eq. (70). this is faster and simpler but limited to degree 4.
- * useful for quick verification.
- *
- * parameters:
- *   aa, bb, cc  (number): semi-axes (a >= b >= c)
- *   RR          (number): reference radius
- *
- * returns:
- *   list of lists [[n, m, C_nm], ...]
- * ============================================================================ */
-estimate_harmonics_triaxial_recursive(aa, bb, cc, RR) := block(
-    [C20, C22, C40, C42, C44, R2],
-
-    R2: RR^2,
-
-    /* balmino (1994) eq. (70) */
-    C20: (1 / (5 * R2)) * (cc^2 - (aa^2 + bb^2) / 2),
-    C22: (1 / (20 * R2)) * (aa^2 - bb^2),
-    C40: (15/7) * (C20^2 + 2 * C22^2),
-    C42: (5/7) * C20 * C22,
-    C44: (5/28) * C22^2,
-
-    return([
-        [2, 0, ratsimp(C20)],
-        [2, 2, ratsimp(C22)],
-        [4, 0, ratsimp(C40)],
-        [4, 2, ratsimp(C42)],
-        [4, 4, ratsimp(C44)]
-    ])
-)$
-
-/* ============================================================================
  * function: print_harmonics
  * ============================================================================
  * description: pretty-prints a list of harmonic coefficients.

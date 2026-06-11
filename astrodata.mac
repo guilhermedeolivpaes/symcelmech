@@ -103,21 +103,19 @@ get_astro_params(astro_name):= block(
             omega_rot = 5.711155929300816e-5    
         ])
     ) elseif name_up = "DIDYMOS" then (
+        /* obtained via estimate_harmonics_triaxial */ 
         return([
             mu = 3.489324040e-8,                
             R = 0.39,                           
-            j2 = 8.35e-2, 
-            j3 = -2.27e-2, 
-            j4 = -5.5e-3, 
-            c22 = 1.82e-3, 
-            c31=-6.22e-3, 
-            s31=-5.94e-3, 
-            c32=-7.10e-5, 
-            s32=1.01e-3, 
-            c33=8.47e-5, 
-            s33=-3.07e-4,
-            c42=-2.06e-5,
-            c44=5.91e-7,
+            j2 = 1.58218277e-2, 
+            j3 = 0.0, 
+            j4 = -5.50620800e-4, 
+            j6 = 2.54475880e-5,
+            j8 = -1.37657999e-6,
+            c22 = 1.82018409e-3, 
+            c42= -2.05704565e-5,
+            c44=5.91619664e-7,
+            c62 = 5.49616077e-7,
             omega_rot = 0.0007725088531821048  
         ])
     ) elseif name_up = "DIDYMOS_SYSTEM" then (
@@ -131,79 +129,4 @@ get_astro_params(astro_name):= block(
         print("Error: Body '", astro_name, "' not found in the database."),
         return([])
     )
-)$
-
-/* ============================================================================
- * function: estimate_harmonics_triaxial
- * description: computes the unnormalized gravitational harmonic coefficients
- * C_{2l,2p} for a homogeneous triaxial ellipsoid with semi-axes aa >= bb >= cc
- * up to a specified maximum degree n_max (must be even).
- *
- * based on the closed-form expansion of Yoder (1995) and Balmino (1994),
- * as presented in Sicardy et al. (2019), eqs. (11)-(13).
- *
- * for a triaxial ellipsoid, only even-degree and even-order terms are nonzero:
- *   C_{2l, 2p}  with  l = 1, 2, ...  and  0 <= p <= l
- * all odd-degree (J3, J5, ...) and odd-order (C31, C32, ...) coefficients
- * vanish identically.
- *
- * the shape parameters are:
- *   eps = (aa^2 - bb^2) / R^2     (equatorial ellipticity)
- *   fp  = (aa^2 + bb^2 - 2*cc^2) / (2*R^2)  (polar flattening)
- *
- * parameters:
- * aa      (number): largest equatorial semi-axis
- * bb      (number): smallest equatorial semi-axis
- * cc      (number): polar semi-axis
- * RR      (number): reference radius 
- * n_max   (integer): maximum harmonic degree (must be even, >= 2)
- *
- * returns:
- * list of lists [[n, m, C_nm], ...] for all nonzero coefficients,
- * sorted by degree then order.
- *
- * references:
- * - Balmino, G. (1994). Celest. Mech. Dyn. Astron. 60, 331-364.
- * - Yoder, C. F. (1995). In: Global Earth Physics, AGU, pp. 1-31.
- * - Sicardy, B. et al. (2019). Nature Astronomy 3, 146-153, eq. (13).
- * - MacMillan, W. D. (1930). The Theory of the Potential.
- * - Scheeres, D. J. (2012). Orbital Motion in Strongly Perturbed Environments, Ch. 2.
- *
- * usage example:
- * >> estimate_harmonics_triaxial(0.415, 0.393, 0.370, 4);
- * >> estimate_harmonics_triaxial(0.415, 0.393, 0.370, 8);
- * ============================================================================ */
-estimate_harmonics_triaxial(aa, bb, cc, RR, n_max) := block(
-    [R2, eps, fp, results, l_max, Q, n, m, ii, p],
-
-    R2: RR^2,
-
-    /* shape parameters (Sicardy et al. 2019) */
-    eps: (aa^2 - bb^2) / R2,
-    fp:  (aa^2 + bb^2 - 2*cc^2) / (2 * R2),
-
-    l_max: n_max / 2,
-    results: [],
-
-    for l: 1 thru l_max do (
-        for p: 0 thru l do (
-            /* Q_{2l, 2p} from eq. (13) of Sicardy et al. (2019) */
-            Q: (3 / (2^(l + 2*p) * (2*l + 3)))
-               * ((2*l + 2*p)! * (2*l - 2*p)! * l!)
-               / ((l + p)! * (l - p)! * (2*l + 1)!),
-
-            Q: Q * sum(
-                (1/16^ii) * eps^(p + 2*ii) / ((p + ii)! * ii!)
-                * fp^(l - p - 2*ii) / (l - p - 2*ii)!,
-                ii, 0, floor((l - p) / 2)
-            ),
-
-            n: 2*l,
-            m: 2*p,
-
-            results: endcons([n, m, Q], results)
-        )
-    ),
-
-    return(results)
 )$
