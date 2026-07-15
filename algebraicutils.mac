@@ -471,7 +471,8 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
  Description:
  evaluates the magnitude ratio between two perturbation potentials over a
  range of values for a scanning variable. for each value in the scan list,
- both potentials are numerically evaluated and their ratio is printed.
+ both potentials are numerically evaluated and their ratio is printed,
+ along with a dominance indicator.
 
  Parameters:
  U_pert1: symbolic expression for the reference perturbation (denominator).
@@ -486,19 +487,22 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
  label_pert2: string label for U_pert2 (e.g., "U_3b").
  label_ratio: string label for the ratio (e.g., "eta").
  ============================================================================ */
- evaluate_perturbation_ratio(
+evaluate_perturbation_ratio(
     U_pert1, U_pert2,
     var_scan, scan_values,
     subst_params1, subst_params2,
     label_var, label_unit, label_pert1, label_pert2, label_ratio
 ) := block(
-    [u1, u2, rat],
+    [u1, u2, rat, dominance],
     printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
     for val in scan_values do (
         u1: float(abs(subst(cons(var_scan = val, subst_params1), U_pert1))),
         u2: float(abs(subst(cons(var_scan = val, subst_params2), U_pert2))),
         rat: u2 / u1,
-        printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f~%",
-               label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat)
+        dominance: if rat > 1 then sconcat("<<< ", label_pert2, " dominates")
+                   elseif rat > 0.1 then "~ comparable"
+                   else sconcat("<<< ", label_pert1, " dominates"),
+        printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
+               label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
     )
 )$
