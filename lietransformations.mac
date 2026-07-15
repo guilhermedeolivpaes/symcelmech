@@ -86,7 +86,7 @@ compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
             _cb_result : map(trigreduce, _cb_result)
     ),
 
-    return(sanitize_hamiltonian_expression(new_term, closed_form, order_trunc_e))
+    return(sanitize_hamiltonian_expression(_cb_result, closed_form, order_trunc_e))
 )$
 
 
