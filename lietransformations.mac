@@ -49,42 +49,41 @@ load("algebraicutils.mac")$
  * when in expansion mode.
  * ============================================================================ */
 compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
-
-    [jj, sum_val: 0, temp_list, reduced_list, temp_F, temp_S, new_term, temp_args],
+    [jj, sum_val: 0, temp_list, reduced_list, temp_F, temp_S, _cb_result, temp_args],
 
     if kk = 0 then return(f_star[nn]),  /* boundary condition for column zero (equation 12, Mersman, 1970) */
     
     for jj:1 thru min(nn - kk + 1, max_order_s) do (
         if closed_form then (
-            new_term: pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
-            sum_val: clean_pb(sum_val + new_term)
+            _cb_result: pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
+            sum_val: clean_pb(sum_val + _cb_result)
 
         ) else (
             /* recurrence for intermediate terms (equation 11, Mersman, 1970) */
             /* called via memoization: ignores vars_list because it's already fixed in the cache. */
-            new_term : pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
+            _cb_result : pb_memo(B_cache[nn-jj, kk-1], s_gen[jj]),
             
             if order_trunc_e # false then (
-                new_term : truncate_ecc_keplerian(new_term, order_trunc_e)
+                _cb_result : truncate_ecc_keplerian(_cb_result, order_trunc_e)
             ),
             
-            sum_val : sum_val + new_term
+            sum_val : sum_val + _cb_result
         )
     ), /* end of for loop */
 
 
     if closed_form then (
-        new_term : clean_pb(sum_val / kk)
+        _cb_result : clean_pb(sum_val / kk)
     ) else (
         /* for expansion in e, the rat() function helps maintain the series structure. */
-        /*new_term : trigreduce(rat(sum_val / kk))*/
-        new_term : ratexpand(sum_val / kk),
-        if new_term = 0 then
-            new_term : 0
-        else if atom(new_term) or not(op(new_term) = "+") then
-            new_term : trigreduce(new_term)
+        /*_cb_result : trigreduce(rat(sum_val / kk))*/
+        _cb_result : ratexpand(sum_val / kk),
+        if _cb_result = 0 then
+            _cb_result : 0
+        else if atom(_cb_result) or not(op(_cb_result) = "+") then
+            _cb_result : trigreduce(_cb_result)
         else
-            new_term : map(trigreduce, new_term)
+            _cb_result : map(trigreduce, _cb_result)
     ),
 
     return(sanitize_hamiltonian_expression(new_term, closed_form, order_trunc_e))
