@@ -465,3 +465,40 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
     
     return(local_rules)
 )$
+
+/* ============================================================================
+ FUNCTION: evaluate_perturbation_ratio
+ Description:
+ evaluates the magnitude ratio between two perturbation potentials over a
+ range of values for a scanning variable. for each value in the scan list,
+ both potentials are numerically evaluated and their ratio is printed.
+
+ Parameters:
+ U_pert1: symbolic expression for the reference perturbation (denominator).
+ U_pert2: symbolic expression for the compared perturbation (numerator).
+ var_scan: the symbolic variable to be scanned (e.g., r).
+ scan_values: list of numerical values for var_scan.
+ subst_params1: list of substitution equations for U_pert1.
+ subst_params2: list of substitution equations for U_pert2.
+ label_var: string label for the scanning variable (e.g., "a").
+ label_unit: string label for the physical unit (e.g., "km").
+ label_pert1: string label for U_pert1 (e.g., "U_J2").
+ label_pert2: string label for U_pert2 (e.g., "U_3b").
+ label_ratio: string label for the ratio (e.g., "eta").
+ ============================================================================ */
+ evaluate_perturbation_ratio(
+    U_pert1, U_pert2,
+    var_scan, scan_values,
+    subst_params1, subst_params2,
+    label_var, label_unit, label_pert1, label_pert2, label_ratio
+) := block(
+    [u1, u2, rat],
+    printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
+    for val in scan_values do (
+        u1: float(abs(subst(cons(var_scan = val, subst_params1), U_pert1))),
+        u2: float(abs(subst(cons(var_scan = val, subst_params2), U_pert2))),
+        rat: u2 / u1,
+        printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f~%",
+               label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat)
+    )
+)$
