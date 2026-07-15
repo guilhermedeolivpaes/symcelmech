@@ -144,7 +144,7 @@ compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
  * ============================================================================ */
 solve_hori_deprit_recurrence(max_order, f_input_list, vars_list, avg_var, n_avg, max_order_s, closed_form, [opt_args]) := block(
     [n, k, j, entry_term, g_brackets, parts, periodic_total, temp_to_avg, n_term_f, n_term_s,
-    order_e, trunc_gen, f_phys, new_term, ham_lie],
+    order_e, trunc_gen, f_phys, ham_lie],
 
     /*
         [opt_args], because Maxima only allows one optional argument. To use more than one, a single 
