@@ -499,21 +499,30 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
  label_ratio: string label for the ratio (e.g., "eta").
  ============================================================================ */
 evaluate_perturbation_ratio(
-    U_pert1, U_pert2,
-    var_scan, scan_values,
-    subst_params1, subst_params2,
-    label_var, label_unit, label_pert1, label_pert2, label_ratio
-) := block(
-    [u1, u2, rat, dominance],
-    printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
+        U_pert1, U_pert2,
+        var_scan, scan_values,
+        subst_params1, subst_params2,
+        label_var, label_unit, label_pert1, label_pert2, label_ratio, print_res
+    ) := block(
+    [u1, u2, rat, dominance, results: []],
+    
+    if print_res then
+        printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
+    
     for val in scan_values do (
         u1: float(abs(subst(cons(var_scan = val, subst_params1), U_pert1))),
         u2: float(abs(subst(cons(var_scan = val, subst_params2), U_pert2))),
         rat: u2 / u1,
-        dominance: if rat > 10 then sconcat("<<< ", label_pert2, " dominates")
-                    elseif rat < 0.1 then sconcat("<<< ", label_pert1, " dominates")
-                    else "~ comparable",
-        printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
-               label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
-    )
+        if print_res then (
+            dominance: if rat > 10 then sconcat("<<< ", label_pert2, " dominates")
+                        elseif rat < 0.1 then sconcat("<<< ", label_pert1, " dominates")
+                        else "~ comparable",
+            printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
+                   label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
+        ) else (
+            results: cons([val, u1, u2, rat], results)
+        )
+    ),
+    
+    if not(print_res) then reverse(results)
 )$
