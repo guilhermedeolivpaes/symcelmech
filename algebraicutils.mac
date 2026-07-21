@@ -471,10 +471,15 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
  Description:
  evaluates the magnitude ratio between two perturbation potentials over a
  range of values for a scanning variable. for each value in the scan list,
- both potentials are numerically evaluated and their ratio is printed,
- along with a dominance indicator.
+ both potentials are numerically evaluated and their ratio is computed.
 
- Dominance thresholds:
+ two modes of operation:
+ - print_res = true:  prints a formatted table to stdout with dominance
+                       indicators. returns nothing useful.
+ - print_res = false: returns a list of [val, |U_pert1|, |U_pert2|, ratio]
+                       suitable for plotting or further analysis.
+
+ Dominance thresholds (print mode only):
  ratio > 10   -> U_pert2 dominates (numerator is more than one order of
                  magnitude larger than denominator).
  0.1 < ratio < 10 -> comparable (both perturbations are within one order
@@ -486,17 +491,27 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
  invariant under exchange of U_pert1 and U_pert2.
 
  Parameters:
- U_pert1: symbolic expression for the reference perturbation (denominator).
- U_pert2: symbolic expression for the compared perturbation (numerator).
- var_scan: the symbolic variable to be scanned (e.g., r).
- scan_values: list of numerical values for var_scan.
+ U_pert1      : symbolic expression for the reference perturbation (denominator).
+ U_pert2      : symbolic expression for the compared perturbation (numerator).
+ var_scan     : the symbolic variable to be scanned (e.g., r).
+ scan_values  : list of numerical values for var_scan.
  subst_params1: list of substitution equations for U_pert1.
  subst_params2: list of substitution equations for U_pert2.
- label_var: string label for the scanning variable (e.g., "a").
- label_unit: string label for the physical unit (e.g., "km").
- label_pert1: string label for U_pert1 (e.g., "U_J2").
- label_pert2: string label for U_pert2 (e.g., "U_3b").
- label_ratio: string label for the ratio (e.g., "eta").
+ label_var    : string label for the scanning variable (e.g., "a").
+ label_unit   : string label for the physical unit (e.g., "km").
+ label_pert1  : string label for U_pert1 (e.g., "U_J2").
+ label_pert2  : string label for U_pert2 (e.g., "U_3b").
+ label_ratio  : string label for the ratio (e.g., "eta").
+ print_res    : boolean flag. true = print formatted output, false = return
+                list of [val, |U_pert1|, |U_pert2|, ratio].
+
+ Returns (print_res = false):
+ a list of lists [[val_1, u1_1, u2_1, rat_1], ..., [val_N, u1_N, u2_N, rat_N]]
+ ordered by scan_values. each sublist contains:
+   val : numerical value of var_scan
+   u1  : float(abs(U_pert1)) evaluated at val
+   u2  : float(abs(U_pert2)) evaluated at val
+   rat : u2 / u1
  ============================================================================ */
 evaluate_perturbation_ratio(
         U_pert1, U_pert2,
@@ -510,8 +525,8 @@ evaluate_perturbation_ratio(
         printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
     
     for val in scan_values do (
-        u1: float(abs(subst(cons(var_scan = val, subst_params1), U_pert1))),
-        u2: float(abs(subst(cons(var_scan = val, subst_params2), U_pert2))),
+        u1: float(abs(subst(append([var_scan = val], subst_params1), U_pert1))),
+        u2: float(abs(subst(append([var_scan = val], subst_params2), U_pert2))),
         rat: u2 / u1,
         if print_res then (
             dominance: if rat > 10 then sconcat("<<< ", label_pert2, " dominates")
@@ -520,9 +535,9 @@ evaluate_perturbation_ratio(
             printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
                    label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
         ) else (
-            results: cons([val, u1, u2, rat], results)
+            results: endcons([val, u1, u2, rat], results)
         )
     ),
     
-    if not(print_res) then reverse(results)
+    if not(print_res) then results
 )$
