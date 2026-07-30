@@ -117,6 +117,13 @@ get_astro_params(astro_name):= block(
             c62 = 5.49616077e-7,
             omega_rot = 0.0007725088531821048  
         ])
+    ) elseif name_up = "DIMORPHOS" then (
+        
+        return([
+            mu = 2.98047e-10,                
+            a = 1.19,
+            e = 0.03,
+        ])
     ) elseif name_up = "DIDYMOS_SYSTEM" then (
         return([          
             d_AU=1.642564399038672,
