@@ -129,7 +129,7 @@ get_astro_params(astro_name):= block(
         return([
             mu = 2.98047e-10,                
             a = 1.19,
-            e = 0.03,
+            e = 0.03
         ])
     ) elseif name_up = "DIDYMOS_SYSTEM" then (
         return([          
