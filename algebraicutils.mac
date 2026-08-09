@@ -620,3 +620,32 @@ export_lie_corrections_to_julia(comp_exprs, comp_names, common_vars_list, output
 
     printf(true, "Exported ~d components with prefix '~a' to ~a~%", length(comp_names), prefix, output_dir)
 )$
+
+/* ============================================================================
+ * function: hill_radius
+ * description: computes the hill sphere radius of a secondary body in
+ * heliocentric orbit. returns either the perihelion value (conservative
+ * bound, useful for bounding the stability region of satellites around
+ * the secondary) or the mean value based on the semi-major axis.
+ * parameters:
+ * a_helioc_km (float): semi-major axis of the heliocentric orbit [km].
+ * e_helioc (float): eccentricity of the heliocentric orbit [-].
+ * m_body_kg (float): mass of the secondary body [kg].
+ * m_sun_kg (float): mass of the sun [kg].
+ * is_perihelion (bool): if true, returns r_h at perihelion via
+ *                       a * (1 - e) * (m / (3 * m_sun))^(1/3);
+ *                       if false, returns r_h at the semi-major axis via
+ *                       a * (m / (3 * m_sun))^(1/3).
+ * ============================================================================ */
+hill_radius(a_helioc_km, e_helioc, m_body_kg, m_sun_kg, is_perihelion) := block(
+    [mass_ratio_cbrt, r_hill],
+
+    mass_ratio_cbrt: (m_body_kg / (3 * m_sun_kg))^(1/3), /* cbrt is cube root */
+
+    if is_perihelion then
+        r_hill: a_helioc_km * (1 - e_helioc) * mass_ratio_cbrt
+    else
+        r_hill: a_helioc_km * mass_ratio_cbrt,
+
+    r_hill
+)$
