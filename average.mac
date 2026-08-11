@@ -230,83 +230,72 @@ apply_hansen_hughes(expr, varF, eccS, aS) := block(
 
 /* ============================================================================
  FUNCTION: hansen_third_body_average
- Description:specialized top level function for third body potential averaging. 
- * it manages the jacobian weight usually r 2 a 2 eta performs 
- * the hansen based quadrature and splits the resulting hamiltonian 
- * into its secular and periodic components.
+ Description:top level function for third body potential secular averaging. 
+ * performs the hansen based quadrature over the true anomaly and returns 
+ * the secular mean of the potential. no jacobian weight is applied here: 
+ * the hansen coefficients x0 already embed the measure of the average over 
+ * the mean anomaly, so any extra jacobian would be counted twice. the 
+ * periodic part is not built by this routine; when short period corrections 
+ * are needed they are obtained from the eccentric anomaly route or set to 
+ * zero, consistently with the rest of the package.
  Parameters:
  * u3b_raw: raw third body potential
  * var_f: true anomaly variable
- * jacobian_eta: jacobian weight for the integration
  * ============================================================================ */
-hansen_third_body_average(U3b_raw, var_f, jacobian_eta) := block(
-    [U3b_jac, weighted_term, secular_part, periodic_part, e_sym, a_sym],
+hansen_third_body_average(U3b_raw, var_f) := block(
+    [U3b_sym, secular_part, e_sym, a_sym],
 
-    /* 0. clean symbols for the hansen engine */
+    /* clean symbols for the hansen engine */
     e_sym : gensym("e_"),
     a_sym : gensym("a_"),
     
-    /* 1. weighting and trigonometric linearization */
-    U3b_jac : U3b_raw * jacobian_eta,
-    
     /* protects e and a during trigreduce and expand */
-    weighted_term : subst([e = e_sym, a = a_sym], U3b_jac),
-    weighted_term : trigreduce(weighted_term),
-    weighted_term : expand(weighted_term),
+    U3b_sym : subst([e = e_sym, a = a_sym], U3b_raw),
+    U3b_sym : trigreduce(U3b_sym),
+    U3b_sym : expand(U3b_sym),
 
-    /* 2. hansen engine */
-    secular_part : apply_hansen_hughes(weighted_term, var_f, e_sym, a_sym),
+    /* hansen engine */
+    secular_part : apply_hansen_hughes(U3b_sym, var_f, e_sym, a_sym),
 
-    /* 3. periodic part */
-    periodic_part : expand(weighted_term - secular_part),
-
-    /* 4. restores the original symbols */
+    /* restores the original symbols */
     secular_part  : subst([e_sym = e, a_sym = a], secular_part),
-    periodic_part : subst([e_sym = e, a_sym = a], periodic_part),
 
-    return([secular_part, periodic_part])
+    return(secular_part)
 )$
 
 /* ============================================================================
  FUNCTION: hansen_srp_average
- Description:extracts the secular average and the periodic part of the solar radiation 
- * pressure srp potential exactly without eccentricity expansion.
- * computational strategy keeps the symbols in keplerian form a e i to optimize the hansen 
- * engine and preserve compatibility with the kinematics of pb closed form.
- * the conversion to delaunay actions l g h is delegated to the post processor 
- * sanitize hamiltonian expression.
+ Description:extracts the secular average of the solar radiation pressure srp 
+ * potential exactly without eccentricity expansion. keeps the symbols in 
+ * keplerian form a e i to optimize the hansen engine and preserve 
+ * compatibility with the kinematics of pb closed form. the conversion to 
+ * delaunay actions l g h is delegated to the post processor sanitize 
+ * hamiltonian expression. no jacobian is applied: the srp radial power is 
+ * n equals 1 and the geometry is not altered, and the hansen coefficients 
+ * already carry the averaging measure. the periodic part is not built by 
+ * this routine.
  Parameters:
  * u_srp: the solar radiation pressure potential
  * var_f: the true anomaly variable
  * ============================================================================ */
 hansen_srp_average(U_srp, var_f) := block(
-    [U_exp, hamSecular, hamPeriodic],
+    [U_exp, hamSecular],
 
-    /* 1. trigonometric linearization in the keplerian domain
+    /* trigonometric linearization in the keplerian domain
      * expands and reduces the combined cosines generated in derive srp potential
      * maintaining the integrity of the pure symbols.
      */
     U_exp : trigreduce(U_srp),
     U_exp : expand(U_exp),
 
-    /* 2. secular extraction via hansen coefficients hughes
+    /* secular extraction via hansen coefficients hughes
      * since the radial power of the srp is n equals 1 the apply hansen hughes function 
      * via hansen x0 pos will generate exact and finite polynomials in e.
      * there is no need for a jacobian here as the geometry is not altered.
      */
     hamSecular : apply_hansen_hughes(U_exp, var_f, e, a),
 
-    /* 3. periodic part extraction
-     * the periodic part is simply the difference between the expanded osculating 
-     * potential and its secular average. this part will serve as input for the 
-     * integration of the first order generating function.
-     */
-    hamPeriodic : expand(U_exp - hamSecular),
-
-    /* returns the list in the format that solve hori deprit recurrence 
-     * expects to receive in f input list secular periodic 
-     */
-    return([hamSecular, hamPeriodic])
+    return(hamSecular)
 )$
 
 /* turns on confirmation to return to normal. */

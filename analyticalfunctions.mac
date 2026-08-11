@@ -359,8 +359,6 @@ generating_function_quadrature(expr, var) := block(
 )$
 
 
-
-
 /* defines the pattern for any expression */
 matchdeclare(aa, all)$
 
@@ -589,6 +587,40 @@ cos_f_exact(f_symb, e_symb, E_symb) := block(
     cos_f: (cos(E_symb) - e_symb)/(1-e_symb*cos(E_symb)),
 
     return(cos_f)
+)$
+
+/* ============================================================================
+ FUNCTION: cos_E_exact
+ Description:computes the cosine of the eccentric anomaly e as a function of the 
+ * true anomaly f and eccentricity e. inverse relation of cos_f_exact.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * E_symb: symbol for eccentric anomaly
+ * ============================================================================ */
+cos_E_exact(f_symb, e_symb, E_symb) := block(
+    [cos_E],
+
+    cos_E: (e_symb + cos(f_symb))/(1 + e_symb*cos(f_symb)),
+
+    return(cos_E)
+)$
+
+/* ============================================================================
+ FUNCTION: sin_E_exact
+ Description:computes the sine of the eccentric anomaly e as a function of the 
+ * true anomaly f and eccentricity e. inverse relation of sin_f_exact.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * E_symb: symbol for eccentric anomaly
+ * ============================================================================ */
+sin_E_exact(f_symb, e_symb, E_symb) := block(
+    [sin_E],
+
+    sin_E: ((1-e_symb^2)^(1/2)*sin(f_symb))/(1 + e_symb*cos(f_symb)),
+
+    return(sin_E)
 )$
 
 /* ============================================================================
