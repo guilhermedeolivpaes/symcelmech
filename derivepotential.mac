@@ -525,17 +525,58 @@ prepare_potential_poisson(expr, order_e, M_symb, e_symb, E_symb, f_symb, r_symb,
  * jacobian matrix and applying algebraic and trigonometric simplifications. 
  * the output is a linearized expansion that facilitates the separation of 
  * secular and periodic terms.
+ *
+ * dual anomaly support via the optional ecc_syms argument:
+ * - if ecc_syms is empty (default), the routine works in the true anomaly f.
+ *   the explicit f is preserved and later linearized by the solver. this is
+ *   the appropriate path for terms with inverse powers r^k, k <= -2.
+ * - if ecc_syms = [f_sym, E_sym, e_sym] is given, the routine rewrites the
+ *   explicit true anomaly trigonometrics cos(f), sin(f) as exact functions of
+ *   the eccentric anomaly E before substituting r. this is the path for terms
+ *   with k > -1, for which the eccentric anomaly gives a clean quadrature.
+ *   the caller must pass r_expr and jac already written in E (and, for a third
+ *   body, in the third body symbols f_3, E_3, e_3).
  Parameters:
  * expr: the original perturbing potential expression.
- * jac: the jacobian of the transformation e.g. dl df.
+ * jac: the jacobian of the transformation e.g. dl df (true) or dl dE (ecc).
  * r_sym: symbol for radial distance.
- * r_expr: the analytical expression for r radial distance.
+ * r_expr: the analytical expression for r radial distance (in f or in E,
+ *         consistent with the chosen anomaly).
+ * [ecc_syms]: optional list [f_sym, E_sym, e_sym] selecting the eccentric
+ *             anomaly path. absent means true anomaly path.
  * ============================================================================ */
-prepare_potential_closedform(expr, jac, r_sym, r_expr) := block(
-    [expr_r, expr_simp, expr_trig, expr_int, ci_s, si_s],
+prepare_potential_closedform(expr, jac, r_sym, r_expr, [ecc_syms]) := block(
+    [expr_r, expr_simp, expr_trig, expr_int, ci_s, si_s,
+     use_ecc, f_sym, E_sym, e_sym, expr_pre],
     
     ci_s : gensym("ci_"), si_s : gensym("si_"),
-    expr_r : subst([r_sym = r_expr, cos_i = ci_s, sin_i = si_s], expr * jac),
+
+    /* decide the anomaly path from the optional argument */
+    use_ecc : if length(ecc_syms) >= 1 then true else false,
+
+    /* protect inclination symbols before any trig manipulation */
+    expr_pre : subst([cos_i = ci_s, sin_i = si_s], expr),
+
+    if use_ecc then (
+        /* eccentric anomaly path: rewrite explicit true anomaly in terms of E */
+        f_sym : ecc_syms[1],
+        E_sym : ecc_syms[2],
+        e_sym : ecc_syms[3],
+
+        /* expand multiple angles of f into first degree cos(f), sin(f) */
+        expr_pre : celmec_trigexpand(expr_pre, f_sym),
+
+        /* replace explicit cos(f), sin(f) by exact eccentric anomaly relations */
+        expr_pre : subst(
+            [ cos(f_sym) = cos_f_exact(f_sym, e_sym, E_sym),
+              sin(f_sym) = sin_f_exact(f_sym, e_sym, E_sym) ],
+            expr_pre
+        )
+    ),
+
+    /* substitute r by its conic expression and attach the jacobian.
+       in the ecc path r_expr and jac are already given in E by the caller. */
+    expr_r : subst(r_sym = r_expr, expr_pre * jac),
     expr_simp : ratsimp(expr_r),
     expr_trig : trigreduce(expr_simp),
     expr_int : ratexpand(expr_trig),

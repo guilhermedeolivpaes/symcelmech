@@ -625,14 +625,14 @@ r_two_body_exact(e_symb, a_symb, f_symb) := block(
 )$
 
 /* ============================================================================
- FUNCTION: dm_f
+ FUNCTION: dm_df
  Description:computes the exact jacobian dm df representing the ratio between the 
  * mean anomaly increment and the true anomaly increment.
  Parameters:
  * e_symb: symbol for eccentricity
  * f_symb: symbol for true anomaly
  * ============================================================================ */
-dM_f(e_symb, f_symb) := block(
+dM_df(e_symb, f_symb) := block(
     [dM],
 
     dM: (1 - e_symb^2)^(3/2) / (1 + e_symb * cos(f_symb))^2,
@@ -641,7 +641,7 @@ dM_f(e_symb, f_symb) := block(
 )$
 
 /* ============================================================================
- FUNCTION: dm_avg_exact
+ FUNCTION: dm_dE
  Description:computes the exact jacobian dm de representing the ratio between the 
  * mean anomaly increment and the eccentric anomaly increment derived 
  * directly from keplers equation m equals e minus e sin e.
@@ -649,7 +649,7 @@ dM_f(e_symb, f_symb) := block(
  * e_symb: symbol for eccentricity
  * e_symb_ecc: symbol for eccentric anomaly
  * ============================================================================ */
-dM_avg_exact(e_symb, E_symb) := block(
+dM_dE(e_symb, E_symb) := block(
     [dM],
 
     dM: (1-e_symb*cos(E_symb)),
