@@ -1,6 +1,8 @@
 /* rtest_symcelmech.mac */
 /* regression test suite for the symcelmech package */
 
+/* batch("rtest_symcelmech.mac", test)$*/ 
+
 (load("symcelmech.mac"), 'done);
 'done$
 
@@ -21,7 +23,7 @@ subst(e = 0, ratdisrep(get_r_over_a_kepler_series(1, M, e, E)));
 1$
 
 /* ============================================================================
-   test group 2: analytical geometry (analyticalfunctions)
+   test group 2: analytical geometry (keplerkinematics)
    ============================================================================ */
 
 /* exact radial distance at f=0 gives periapsis */
@@ -37,7 +39,7 @@ subst(e = 0, dM_df(e, f));
 1$
 
 /* ============================================================================
-   test group 3: potential derivation (derivepotential)
+   test group 3: potential derivation (potentialmodels)
    ============================================================================ */
 
 /* J2 zonal potential should have the correct structure */
@@ -94,7 +96,7 @@ map_average(A + B*cos(f), f);
 [A, B*cos(f)]$
 
 /* ============================================================================
-   test group 5: algebraic utilities (algebraicutils)
+   test group 5: algebraic utilities (postprocessing)
    ============================================================================ */
 
 /* chop_series removes small coefficients */
@@ -118,7 +120,7 @@ listp(deatomize_parameters());
 true$
 
 /* ============================================================================
-   test group 6: poisson brackets (analyticalfunctions)
+   test group 6: poisson brackets (keplerkinematics)
    ============================================================================ */
 
 /* pb_series: bracket of a function with itself is zero */
@@ -218,7 +220,7 @@ true;
 0;
 
 /* ============================================================================
-   test group 10: triaxial ellipsoid harmonics (derivepotential)
+   test group 10: triaxial ellipsoid harmonics (potentialmodels)
    validation against Balmino (1994) eq. (70) / Fodde et al. (2023) eqs. (3)-(7)
    Didymos: a=0.399 km, b=0.392 km, c=0.380 km, R=0.390 km
    ============================================================================ */
@@ -284,6 +286,82 @@ true$
 /* C22 is independent of c (equatorial ellipticity only) */
 (h8_alt: estimate_harmonics_triaxial(0.399, 0.392, 0.290, 0.390, 8),
  is(abs(float(h8_alt[2][3]) - float(h8_test[2][3])) < 1e-15));
+true$
+
+/* ============================================================================
+   test group 11: inverse anomaly relations (keplerkinematics)
+   ============================================================================ */
+
+/* cos_E_exact at f=0 is 1 (periapsis, E=0) */
+ratsimp(cos_E_exact(0, e, E));
+1$
+
+/* sin_E_exact at f=0 is 0 (periapsis, E=0) */
+ratsimp(sin_E_exact(0, e, E));
+0$
+
+/* cos_E_exact at f=pi is -1 (apoapsis, E=pi) */
+ratsimp(cos_E_exact(%pi, e, E));
+-1$
+
+/* round-trip: cos_f_exact expressed back through the inverse recovers cos(f) */
+trigsimp(ratsimp(subst([cos(E) = cos_E_exact(f, e, E), sin(E) = sin_E_exact(f, e, E)],
+    cos_f_exact(f, e, E)) - cos(f)));
+0$
+
+/* round-trip: sin_f_exact expressed back through the inverse recovers sin(f) */
+trigsimp(ratsimp(subst([cos(E) = cos_E_exact(f, e, E), sin(E) = sin_E_exact(f, e, E)],
+    sin_f_exact(f, e, E)) - sin(f)));
+0$
+
+/* pythagorean identity for the inverse relations holds exactly */
+trigsimp(ratsimp(cos_E_exact(f, e, E)^2 + sin_E_exact(f, e, E)^2 - 1));
+0$
+
+/* ============================================================================
+   test group 12: eccentric-anomaly averaging route (perturbationtools/average)
+   cross-validation of the E-route third-body secular against the hansen route
+   ============================================================================ */
+
+/* build a second-order third-body potential with circular perturber (r_3 = a_3) */
+(U3b_t: derive_general_third_body(0, 2, mu_3, r_3, f_3, a_3, e_3, i_3, g_3, h_3,
+                                        r,   f,   a,   e,   i,   g,   h),
+ U3b_t: subst([r_3 = a_3, e_3 = 0, i_3 = 0, h_3 = 0, g_3 = 0], U3b_t),
+ 'done);
+'done$
+
+/* eccentric-anomaly route: prepare in E, average over E, take the secular part */
+(prep_E: prepare_potential_closedform(U3b_t, dM_dE(e, E), r,
+                                      a*r_over_a_exact(e, E), f, E, e),
+ sec_E: map_average(prep_E, E)[1],
+ 'done);
+'done$
+
+/* hansen route: secular mean of the same potential (no jacobian) */
+(sec_H: hansen_third_body_average(U3b_t, f), 'done);
+'done$
+
+/* the two routes agree on the secular mean */
+ratsimp(sec_E - sec_H);
+0$
+
+/* the eccentric-anomaly secular is free of the eccentric anomaly E */
+freeof(E, sec_E);
+true$
+
+/* the hansen third-body secular carries no spurious eta (jacobian not double-counted) */
+freeof(eta, sec_H);
+true$
+
+/* ============================================================================
+   test group 13: canonical transformations round-trip (hamiltoniansystems)
+   ============================================================================ */
+
+/* delaunay -> poincare -> delaunay round-trip (numerical check) */
+(test_expr: L + G*cos(g) + H*sin(h),
+ rt: poincare_to_delaunay(delaunay_to_poincare(test_expr)),
+ vals: [L = 1.0, G = 0.8, H = 0.6, l = 0.5, g = 0.3, h = 0.2],
+ is(abs(float(subst(vals, rt)) - float(subst(vals, test_expr))) < 1e-10));
 true$
 
 'done;
