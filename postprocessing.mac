@@ -13,6 +13,20 @@ file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 /* load("keplerkinematics.mac")$ */
 
 /* ============================================================================
+ FUNCTION: leaf_count
+ Description:measures the structural complexity and symbolic weight of an expression 
+ * by recursively counting the number of atoms leaves in its expression tree. 
+ * while nterms only counts the number of summands leaf count provides a 
+ * metric for the total computational cost and memory footprint of the terms.
+ * usage note critical for monitoring expression swell during high order lie 
+ * transformations allowing the user to decide when to apply chop series 
+ * or further simplifications.
+ Parameters:
+ * expr: the symbolic expression to be analyzed
+ * ============================================================================ */
+leaf_count(expr) := if atom(expr) then 1 else 1 + apply("+", map(leaf_count, args(expr)))$
+
+/* ============================================================================
  FUNCTION: deatomize_parameters
  Description:
  returns a list of substitutions for orbital and physical parameters.

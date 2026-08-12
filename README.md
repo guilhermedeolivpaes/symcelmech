@@ -97,19 +97,29 @@ batch("rtest_symcelmech.mac", test)$
 
 ```
 lietransformations.mac
-├── analyticalfunctions.mac
+├── poissonbracket.mac
+│   └── canonicalsetup.mac
+├── perturbationtools.mac
+│   └── postprocessing.mac
 ├── average.mac
-│   └── analyticalfunctions.mac
-├── celmechseries.mac
-└── algebraicutils.mac
-    └── analyticalfunctions.mac
+├── keplerkinematics.mac
+├── postprocessing.mac
+└── canonicalsetup.mac
 
-derivepotential.mac
-├── analyticalfunctions.mac
+potentialmodels.mac
+├── keplerkinematics.mac
 └── celmechseries.mac
 
-planetaryequations.mac  (standalone)
-astrodata.mac           (standalone)
+hamiltoniansystems.mac
+└── canonicalsetup.mac
+
+planetaryequations.mac   (standalone)
+canonicalsetup.mac       (leaf)
+keplerkinematics.mac     (leaf)
+celmechseries.mac        (leaf)
+postprocessing.mac       (leaf)
+astrodata.mac            (leaf)
+average.mac              (leaf)
 ```
 
 ## Averaging Routes for Positive Radial Powers
@@ -230,7 +240,7 @@ If you use `symcelmech` in your research, please cite the accompanying paper (un
 
 ```bibtex
 @article{paes2026symcelmech,
-  author  = {Paes, Guilherme de Oliveira and Berton, Lilian and Vilhena de Moraes, Rodolpho},
+  author  = {de Oliveira Paes, Guilherme and Berton, Lilian and Vilhena de Moraes, Rodolpho},
   title   = {A Hybrid Symbolic-Numerical Framework for Artificial Satellite 
              Theory and Dynamics using Maxima and Julia},
   year    = {2026},
@@ -256,14 +266,18 @@ Parts of the documentation, code comments, test scripts, and some code optimizat
 ```
 symcelmech/
 ├── symcelmech.mac              # entry point (load this)
-├── analyticalfunctions.mac     # Poisson brackets, quadrature, trigonometric tools
-├── algebraicutils.mac          # memoization, sanitization, substitution rules
 ├── astrodata.mac               # physical constants database
-├── average.mac                 # Hansen coefficients, orbital averaging
+├── canonicalsetup.mac          # canonical dependency setup (gradef/depends)
+├── keplerkinematics.mac        # anomaly relations, conic, jacobians, celmec_trigexpand
 ├── celmechseries.mac           # elliptic expansion series
-├── derivepotential.mac         # perturbing potential derivation
+├── postprocessing.mac          # sanitization, deatomization, Julia export
+├── poissonbracket.mac          # Poisson brackets (series and closed-form)
+├── perturbationtools.mac       # quadrature, parallax elimination, potential preparation
+├── potentialmodels.mac         # perturbing potential derivation, triaxial harmonics
+├── average.mac                 # Hansen coefficients, orbital averaging
+├── planetaryequations.mac      # Lagrange planetary equations (classical and nonsingular)
+├── hamiltoniansystems.mac      # Hamilton equations, canonical transformations
 ├── lietransformations.mac      # Hori-Deprit solver, Lie corrections
-├── planetaryequations.mac      # Lagrange, Gauss, Hamilton equations
 ├── rtest_symcelmech.mac        # regression test suite
 ├── README.md
 ├── LICENSE
