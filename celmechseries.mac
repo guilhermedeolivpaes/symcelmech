@@ -10,6 +10,55 @@ declare([e, E, M], real)$
 /* adds restrictions on the range of values for integration and simplification */
 assume(e >= 0, e < 1, E >= 0, E <= 2*%pi, M >= 0, M <= 2*%pi)$
 
+/* defines the pattern for any expression */
+matchdeclare(aa, all)$
+
+/* ============================================================================
+ FUNCTION: celmec_trigexpand
+ Description:a specialized trigonometric expansion tool tailored for celestial mechanics. 
+ * it targets a specific variable usually an anomaly like f or l and 
+ * decomposes multiple angle trigonometric terms into powers of sines and 
+ * cosines while applying addition formulas to separate fast and slow 
+ * arguments.
+ Parameters:
+ * expr: the symbolic expression to be expanded
+ * v_target: the target variable e.g. true anomaly f whose 
+ * multiple angles will be expanded into powers
+ * ============================================================================ */
+celmec_trigexpand(expr, v_target) := block(
+    [rule_c, rule_s],
+    
+    /* activates the trigonometric expansion flags locally */
+    local(trigexpandplus, trigexpandtimes),
+    trigexpandplus: true,
+    trigexpandtimes: true,
+
+    /* cosine rule cos a plus n f */
+    rule_c: defrule(rc, cos(aa), 
+        block([c, rest, cv, sv],
+            c: coeff(aa, v_target),
+            rest: expand(aa - c*v_target),
+            /* expands cos c f and sin c f into powers */
+            cv: trigexpand(cos(c*v_target)),
+            sv: trigexpand(sin(c*v_target)),
+            cos(rest)*cv - sin(rest)*sv
+        )
+    ),
+    
+    /* sin rule sin a plus n f */
+    rule_s: defrule(rs, sin(aa), 
+        block([c, rest, cv, sv],
+            c: coeff(aa, v_target),
+            rest: expand(aa - c*v_target),
+            /* expands cos c f and sin c f into powers */
+            cv: trigexpand(cos(c*v_target)),
+            sv: trigexpand(sin(c*v_target)),
+            sin(rest)*cv + cos(rest)*sv
+        )
+    ),
+    
+    apply1(expr, rc, rs)
+)$
  
 /* ============================================================================
  FUNCTION: _get_e_series
@@ -295,6 +344,40 @@ truncate_closed_form(expr, max_ord) := block(
     final_expr: ratsimp(final_expr),
     
     return(final_expr)
+)$
+
+/* ============================================================================
+ FUNCTION: chop_series
+ Description:
+ a precision filter used to control expression swell in high order series 
+ expansions by removing terms smaller than a specified tolerance.
+
+ Parameters:
+ expr: the symbolic series or expression to be filtered.
+ tol: the numerical threshold for truncation.
+ ============================================================================ */
+chop_series(expr, tol) := block(
+    [temp: expr, c],
+    if mapatom(expr) then (
+        if numberp(expr) and abs(expr) < tol then return(0) else return(expr)
+    ),
+    
+    if op(expr) = "+" then (
+        temp: 0,
+        for termo in args(expr) do (
+            c: coeff_of_term(termo),
+            /* it only filters if it is a comparable number */
+            if numberp(c) then (
+                if abs(c) > tol then temp: temp + termo
+            ) else (
+                temp: temp + termo /* keep going if you cannot determine the number */
+            )
+        )
+    ) else (
+        c: coeff_of_term(expr),
+        if numberp(c) and abs(c) < tol then temp: 0
+    ),
+    return(temp)
 )$
 
 /* ============================================================================

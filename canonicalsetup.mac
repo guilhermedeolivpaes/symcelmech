@@ -1,0 +1,140 @@
+/* canonicalsetup.mac */
+
+/* turn off reset warnings to load the package cleanly */
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/* ============================================================================
+ FUNCTION: setup_canonical_dependencies
+ Description:configures the symbolic differentiation engine of maxima by 
+ * establishing functional dependencies and custom derivative rules gradefs for 
+ * orbital mechanics. this allows the poisson bracket engine to automatically apply 
+ * the chain rule across different coordinate systems e.g. from delaunay 
+ * actions to keplerian geometry.
+ * key configurations
+ * 1. delaunay kepler mapping defines derivatives of eccentricity e 
+ * semi major axis a and inclination i with respect to delaunay 
+ * actions l g h.
+ * 2. orbital geometry dna establishes the exact partial derivatives for 
+ * the radius r and true anomaly f.
+ * 3. closed form jacobian implements the exact transformation between the 
+ * true anomaly f and mean anomaly l including the df de variation 
+ * at constant l.
+ * 4. homogeneous formalism sets up time dependent rules for third body 
+ * anomalies l_3 l_o and planetary rotation theta relative to the 
+ * independent variable tau.
+ * technical note
+ * this setup is essential for closed form theories where derivatives 
+ * involving the true anomaly must be handled without series expansion.
+ Parameters: none
+ * ============================================================================ */
+setup_canonical_dependencies() := (
+    depends(a, L), depends(e, [L, G]), depends(i, [G, H]),
+    depends(r, [a, e, f]), depends(sin_i, [G, H]),
+    depends(cos_i, [G, H]), depends(eta, [L, G]),
+    depends(f, [l, e]),
+
+    /* derivative of e with respect to l */
+    gradef(e, L, (1 - e^2) / (L * e)),
+
+    /* derivative of e with respect to g */
+    gradef(e, G, -G / (L^2 * e)),
+
+    /* derivative of sin i with respect to g */
+    gradef(sin_i, G, ( H^2) / (G^3 * sin_i)),
+    /* derivative of sin i with respect to h */
+    gradef(sin_i, H, (-H) / (G^2 * sin_i)),
+
+    /* derivative of cos i with respect to g */
+    gradef(cos_i, G, -H/(G^2)),
+    /* derivative of cos i with respect to h */
+    gradef(cos_i, H, 1/G),
+
+    /* delaunay to kepler */
+    /* derivative of a with respect to l */
+    gradef(a, L, 2*a/L),
+    /* derivative of i with respect to g */
+    gradef(i, G, cot(i)/G),
+    /* derivative of i with respect to h */
+    gradef(i, H, -1/(G * sin(i))),
+
+    /* ----------------------------- */
+    gradef(r, a, r/a),
+    /* derivative of r with respect to e */
+    gradef(r, e, -r * (cos(f) + e) / (1 - e^2)),
+    /* derivative of r with respect to f */
+    gradef(r, f, (r^2 * e * sin(f)) / (a * (1 - e^2))),
+
+    /* ----------------------------- */
+    /* derivative of eta with respect to l */
+    gradef(eta, L, (-G^2) / (L^3 * eta)),
+    /* derivative of eta with respect to g */
+    gradef(eta, G, G / (L^2 * eta)),
+
+    /* ----------------------------- */
+    /* rules for homogeneous formalism */
+    /* truncated mode in eccentricity */
+    /*
+        /* derivative of l_3 with respect to t */
+        gradef(l_3, tau, n_3),
+        /* derivative of l_o with respect to t */
+        gradef(l_o, tau, n_o),
+        /* derivative of l with respect to t */
+        gradef(l, tau, n),
+        
+        /* for tesseral harmonics in the inertial frame of reference */
+        gradef(theta, tau, w_rot), /* theta equals w_rot tau */
+
+    */
+
+    print("canonical dependencies activated.")
+)$
+
+/* ============================================================================
+ FUNCTION: teardown_canonical_dependencies
+ Description:cleans the symbolic environment by removing all functional 
+ * dependencies previously established by setup canonical dependencies.
+ * usage should be called at the end of a solver run or when switching between 
+ * different dynamical models to prevent unwanted derivative cross talk or 
+ * memory overhead in the symbolic tree.
+ Parameters: none
+ * ============================================================================ */
+teardown_canonical_dependencies() := (
+    
+    remove(f, dependency), remove(r, dependency),
+    remove(a, dependency), remove(e, dependency),
+    remove(eta, dependency), remove(i, dependency),
+    remove(sin_i, dependency), remove(cos_i, dependency),
+    
+
+    remove(l_3, dependency), remove(l_o, dependency),
+    remove(l, dependency), remove(theta, dependency),
+
+    print("canonical dependencies deactivated.")
+)$
+
+/* ============================================================================
+ * function: setup_extended_pairs
+ * description: configures gradef rules for an arbitrary number of extra
+ * canonical pairs in the extended phase space. each extra coordinate
+ * is assumed to evolve linearly in tau with the given frequency.
+ * parameters:
+ * extra_coords: list of extra coordinate symbols [l_3, lambda_o, ...]
+ * freqs: list of corresponding frequencies [n_3, n_o, ...]
+ * ============================================================================ */
+setup_extended_pairs(extra_coords, freqs) := block(
+    [k],
+    for k: 1 thru length(extra_coords) do block(
+        [coord_k, freq_k],
+        coord_k: part(extra_coords, k),
+        freq_k: part(freqs, k),
+        gradef(coord_k, tau, freq_k)
+    ),
+    print("Extended pairs configured:", extra_coords, "with frequencies:", freqs)
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

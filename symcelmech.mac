@@ -1,19 +1,31 @@
-/* symcelmech.mac -- entry point for the symcelmech package */
+/* ==========================================================================
+   symcelmech.mac - package entry point
+   loads all modules in dependency order
+   ========================================================================== */
 
 /* ensure the package directory is in the search path */
 if not member(pathname_directory(load_pathname), file_search_maxima) then
     file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 
-/* core modules */
+
+/* leaf modules: no internal package dependencies */
 load("astrodata.mac")$
 load("celmechseries.mac")$
-load("analyticalfunctions.mac")$
-load("algebraicutils.mac")$
-load("average.mac")$
-load("derivepotential.mac")$
-load("lietransformations.mac")$
+load("keplerkinematics.mac")$
+load("canonicalsetup.mac")$
 load("planetaryequations.mac")$
+load("postprocessing.mac")$
 
-symcelmech_version : "1.0.0"$
+/* depend on the leaves above */
+load("poissonbracket.mac")$        /* loads canonicalsetup */
+load("perturbationtools.mac")$     /* loads postprocessing, keplerkinematics, celmechseries */
+load("potentialmodels.mac")$       /* loads keplerkinematics, celmechseries */
+load("average.mac")$
+load("hamiltoniansystems.mac")$    /* loads canonicalsetup */
+
+/* top level: consumes the above */
+load("lietransformations.mac")$    /* loads poissonbracket, perturbationtools, average, keplerkinematics, postprocessing */
+
+/*symcelmech_version: "1.0.0"$*/
 
 print(concat("symcelmech ", symcelmech_version, " loaded."))$

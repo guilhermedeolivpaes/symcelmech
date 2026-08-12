@@ -1,0 +1,259 @@
+/* poissonbracket.mac */
+
+/* turn off reset warnings to load the package cleanly */
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+load("canonicalsetup.mac")$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/* ============================================================================
+ FUNCTION: setup_pb_cache
+ Description:
+ initializes and manages the memoization system for poisson bracket calculations.
+
+ Parameters:
+ vlist: the list of canonical variables to be used by the poisson bracket engine.
+ is_closed: routing flag for the poisson bracket engine.
+ ============================================================================ */
+setup_pb_cache(vlist, is_closed) := (
+    kill(_pb_hash, pb_memo),
+    
+    /* funmake creates the function structure by injecting the content of vlist and the flag in a closed form */
+    define(_pb_hash[f1, f2], funmake('poisson_bracket, [f1, f2, vlist, is_closed])),
+    
+    /* logical wrapper for managing antisymmetry and serial formats */
+    pb_memo(A, B) := block(
+        [gA, gB],
+        /* protection against void terms */
+        if A = 0 or B = 0 then return(0),
+        
+        /* converts to a general representation to avoid breaking the hash */
+        gA : ratdisrep(A),
+        gB : ratdisrep(B),
+        
+        if gA = gB then return(0),
+        
+        if orderlessp(gA, gB) then 
+            _pb_hash[gA, gB] 
+        else 
+            -_pb_hash[gB, gA]
+    )
+)$
+
+/* memoization in maxima, using square brackets instead of parentheses, transforms the function into an array function
+   or a table lookup function. unlike a regular function that reprocesses the code every time,
+   a function with memoization works like a notebook: the first time you request a calculation, maxima calculates and
+   notes the result; in subsequent times, it simply reads what it noted. 
+*/
+
+
+/* ============================================================================
+ FUNCTION: pb_series
+ Description:an optimized version of the series poisson bracket engine. it adopts the 
+ * linear extraction strategy from the closed form engine to improve 
+ * performance in high order expansions. by decoupling symbolic differentiation 
+ * from algebraic summation it reduces the computational overhead on the 
+ * expression tree.
+ Parameters:
+ * a: symbolic series to be bracketed
+ * b: symbolic series to be bracketed
+ * vars: canonical variables q p
+ * ============================================================================ */
+pb_series(A, B, Vars) := block(
+    [
+        n_dims: length(Vars)/2,
+        Aq: [], Ap: [], Bq: [], Bp: [],
+        PB: 0, i
+    ],
+    
+    if A = B then return(0),
+
+    /* 1. mass extraction effect pb closed */
+    /* we extract all derivatives before starting any algebra */
+    for i: 1 thru n_dims do (
+        Aq: endcons(diff(A, Vars[i]), Aq),
+        Ap: endcons(diff(A, Vars[i + n_dims]), Ap),
+        Bq: endcons(diff(B, Vars[i]), Bq),
+        Bp: endcons(diff(B, Vars[i + n_dims]), Bp)
+    ),
+
+    /* 2. linearized sum */
+    /* we use ratexpand to keep the polynomial series structure clean */
+    for i: 1 thru n_dims do (
+        PB: PB + Aq[i]*Bp[i] - Ap[i]*Bq[i]
+    ),
+
+    return(ratexpand(PB))
+)$
+
+
+/* ============================================================================
+ FUNCTION: pb_closed_form
+ Description:a high performance poisson bracket engine optimized for closed form orbital 
+ * theories. unlike the standard series pb this function treats the radius r 
+ * and true anomaly f as independent symbolic entities manually applying 
+ * the analytical chain rule to map them back to delaunay actions.
+ Parameters:
+ * a: symbolic expressions involving orbital parameters
+ * b: symbolic expressions involving orbital parameters
+ * vars: canonical variable list
+ * ============================================================================ */
+pb_closed_form(A, B, Vars) := block(
+    [
+        PB: 0, 
+        Ar, Af, Aa, Ae, Aeta, Ai, Ag, Ah, AG, AH,
+        Br, Bf, Ba, Be, Beta, Bi, Bg, Bh, BG, BH,
+        df_dl, dr_dl, dr_dL, dr_dG, df_dL, df_dG,
+        da_dL, de_dL, de_dG, deta_dL, deta_dG, di_dG, di_dH,
+        C_rf, C_ra, C_re, C_reta, C_fa, C_fe, C_feta,
+        C_rG, C_fG, C_eG, C_etaG, C_iG, C_iH,
+        extended: is(length(Vars) = 8)
+    ],
+     
+    if A = B then return(0),
+       
+    /* 2. explicit derivatives independent */
+    Ar: diff(A, r), Af: diff(A, f), Aa: diff(A, a), Ae: diff(A, e), 
+    Aeta: diff(A, eta), Ai: diff(A, i) + diff(A, sin_i)*cos_i - diff(A, cos_i)*sin_i,
+    Ag: diff(A, g), Ah: diff(A, h), AG: diff(A, G), AH: diff(A, H),
+    
+    Br: diff(B, r), Bf: diff(B, f), Ba: diff(B, a), Be: diff(B, e), 
+    Beta: diff(B, eta), Bi: diff(B, i) + diff(B, sin_i)*cos_i - diff(B, cos_i)*sin_i,
+    Bg: diff(B, g), Bh: diff(B, h), BG: diff(B, G), BH: diff(B, H),
+    
+    /* 3. monomial kinematics */
+    /* we eliminate the binomial 1 e cos f using the orbit equation.
+    purely monomial denominators avoid gcd explosion in ram */
+    
+    df_dl : (a^2 * eta) / r^2,
+    dr_dl : (a * e * sin(f)) / eta,
+    
+    da_dL : 2*a/L,
+    de_dL : eta^2 / (L * e),
+    deta_dL : -eta / L,
+    
+    de_dG : -eta / (L * e),
+    deta_dG : 1 / L,
+    
+    di_dG : cos_i / (L * eta * sin_i),
+    di_dH : -1 / (L * eta * sin_i),
+    
+    /* radial and angular derivatives in l and g keeping l constant */
+    dr_dL : 2*r/L - ((a - r) * eta^2) / (L * e^2),
+    dr_dG : ((a - r) * eta) / (L * e^2),
+    
+    df_dL : (sin(f) / (L * e)) * (1 + (a * eta^2) / r),
+    df_dG : -(sin(f) / (L * e * eta)) * (1 + (a * eta^2) / r),
+
+    df_de_exact : (sin(f) / (1 - e^2)) * (2 + e * cos(f)),
+    dr_de_exact : -a * cos(f), 
+
+    
+    /* 4. pre expanded fundamental scalars */
+    C_rf   : ratexpand( dr_dl * df_dL - dr_dL * df_dl ),
+    C_ra   : ratexpand( dr_dl * da_dL ),
+    C_re   : ratexpand( dr_dl * de_dL ),
+    C_reta : ratexpand( dr_dl * deta_dL ),
+    C_fa   : ratexpand( df_dl * da_dL ),
+    C_fe   : ratexpand( df_dl * de_dL ),
+    C_feta : ratexpand( df_dl * deta_dL ),
+    
+    C_rG   : ratexpand(dr_dG),
+    C_fG   : ratexpand(df_dG),
+    C_eG   : ratexpand(de_dG),
+    C_etaG : ratexpand(deta_dG),
+    C_iG   : ratexpand(di_dG),
+    C_iH   : ratexpand(di_dH),
+    
+    /* 5. the factored master equation */
+    PB : ratexpand( 
+        /* block l l */
+        C_rf * (Ar*Bf - Af*Br) 
+        + C_ra * (Ar*Ba - Aa*Br) 
+        + C_re * (Ar*Be - Ae*Br) 
+        + C_reta * (Ar*Beta - Aeta*Br) 
+        + C_fa * (Af*Ba - Aa*Bf) 
+        + C_fe * (Af*Be - Ae*Bf) 
+        + C_feta * (Af*Beta - Aeta*Bf)
+        
+        /* block g g */
+        + (Ag*BG - AG*Bg) 
+        + C_rG * (Ag*Br - Ar*Bg) 
+        + C_fG * (Ag*Bf - Af*Bg) 
+        + C_eG * (Ag*Be - Ae*Bg) 
+        + C_etaG * (Ag*Beta - Aeta*Bg) 
+        + C_iG * (Ag*Bi - Ai*Bg)
+        
+        /* block h h */
+        + (Ah*BH - AH*Bh) 
+        + C_iH * (Ah*Bi - Ai*Bh)
+    ),
+
+    if extended then block(
+        [Atau, AT, Btau, BT, Al3, Bl3, Ath, Bth,
+        tau_var: Vars[4], T_var: Vars[8]],
+        
+        /* pure partial derivatives */
+        Al3: diff(A, l_3),  Bl3: diff(B, l_3),
+        Ath: diff(A, theta), Bth: diff(B, theta),
+        AT:  diff(A, T_var), BT:  diff(B, T_var),
+        
+        /* chain rule d dtau equals n_3 d dl_3 plus w_rot d dtheta */
+        Atau: n_3*Al3 + w_rot*Ath,
+        Btau: n_3*Bl3 + w_rot*Bth,
+        
+        PB: PB + ratexpand(Atau*BT - AT*Btau),
+
+        PB : ratsubst(df_de_exact, 'diff(f, e), PB),
+        PB : ratsubst(dr_de_exact, 'diff(r, e), PB)
+    ),
+        
+    return(PB)
+)$
+
+
+/* ============================================================================
+ FUNCTION: poisson_bracket
+ Description:top level router for poisson bracket calculations. decouples the lie 
+ * solver logic from the specific kinematic implementation.
+ Parameters:
+ * a: expressions to be bracketed
+ * b: expressions to be bracketed
+ * vars: canonical variables
+ * is_closed_form: routing flag. if true triggers pb closed form 
+ * if false triggers pb series.
+ * ============================================================================ */
+poisson_bracket(A, B, Vars, is_closed_form) := block(
+    if is_closed_form then
+        return(pb_closed_form(A, B, Vars))
+    else
+        return(pb_series(A, B, Vars))
+)$
+
+/* ============================================================================
+ FUNCTION: clean_pb
+ Description:
+ simplifies the results of poisson bracket operations by enforcing the 
+ fundamental kinematic relationship between eccentricity and eta.
+
+ Parameters:
+ pb: the raw output from a poisson bracket calculation.
+ ============================================================================ */
+clean_pb(pb) := block(
+    [pb_simp, pb_eta, e_s, eta_s],
+
+    e_s : gensym("e_"),
+    eta_s : gensym("eta_"),
+
+    pb_simp : subst([e = e_s, eta = eta_s], pb),
+    pb_simp : trigsimp(ratsimp(pb_simp)),
+    pb_eta  : ratsubst(eta_s^2, 1 - e_s^2, factor(pb_simp)),
+
+    return(subst([e_s = e, eta_s = eta], pb_eta))
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

@@ -1,0 +1,361 @@
+/* perturbationtools.mac */
+
+/* turn off reset warnings to load the package cleanly */
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+load("postprocessing.mac")$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/* ============================================================================
+ FUNCTION: generating_function_quadrature
+ Description:performs a high performance symbolic integration quadrature of periodic 
+ * hamiltonian terms to compute the generating function s. instead of using 
+ * the general purpose integrate engine it employs a frequency extraction 
+ * method in the complex exponential domain which is faster and more reliable 
+ * for trigonometric series.
+ Parameters:
+ * expr: the periodic part of the hamiltonian to be integrated
+ * var: the integration variable e.g. f or l
+ * ============================================================================ */
+generating_function_quadrature(expr, var) := block(
+    [temp, int_val, lista_termos, e_s, a_s, eta_s],
+
+    e_s : gensym("e_"), a_s : gensym("a_"), eta_s : gensym("eta_"),
+    temp : subst([e = e_s, a = a_s, eta = eta_s], expr),
+
+    temp : if freeof(%i, temp) then expand(exponentialize(temp)) else temp,
+    if (temp = 0) then return(0),
+
+    lista_termos : if not atom(temp) and op(temp) = "+" then args(temp) else [temp],
+
+    int_val : apply("+", map(lambda([u],
+        block([freq],
+            freq : ratsimp(diff(u, var) / u),
+            if freq = 0 then 0 else u / freq
+        )
+    ), lista_termos)),
+
+    temp : realpart(rectform(int_val)),
+
+    /* restores */
+    temp : subst([e_s = e, a_s = a, eta_s = eta], temp),
+    return(temp)
+)$
+
+/* ============================================================================
+ FUNCTION: prepare_potential_poisson
+ Description:prepares the potential for poisson series expansion.
+ Parameters:
+ * expr: original potential expression
+ * order_e: truncation order for eccentricity
+ * m_symb: symbol for mean anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb: symbol for eccentric anomaly
+ * f_symb: symbol for true anomaly
+ * r_symb: symbol for radial distance
+ * r_expr: expression to substitute for r_symb
+ * ============================================================================ */
+prepare_potential_poisson(expr, order_e, M_symb, e_symb, E_symb, f_symb, r_symb, r_expr) := block(
+    [U, temp, cos_f, sin_f],
+    
+    U: subst(r_symb=r_expr, expr),
+    
+    cos_f: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
+    sin_f: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
+    
+    /* 1. replaces r and f with the series in l and e */
+    temp: subst([cos(f_symb)=cos_f, sin(f_symb)=sin_f], celmec_trigexpand(U, f_symb)),    
+
+    /* 2. taylor series to truncate eccentricity */
+    temp: ratdisrep(taylor(temp, e_symb, 0, order_e)),    
+
+    /* 3. trigonometric linearization */
+    temp: trigreduce(temp),    
+
+    /* 4. final organization */
+    return(ratexpand(temp))
+)$
+
+/* ============================================================================
+ FUNCTION: prepare_potential_closedform
+ Description:prepares a perturbing potential for closed form orbital averaging. 
+ * the process involves substituting the radial distance r with its conic 
+ * expression multiplying by the jacobian of the transformation one dimensional 
+ * jacobian matrix and applying algebraic and trigonometric simplifications. 
+ * the output is a linearized expansion that facilitates the separation of 
+ * secular and periodic terms.
+ *
+ * dual anomaly support via the optional ecc_syms argument:
+ * - if ecc_syms is empty (default), the routine works in the true anomaly f.
+ *   the explicit f is preserved and later linearized by the solver. this is
+ *   the appropriate path for terms with inverse powers r^k, k <= -2.
+ * - if ecc_syms = [f_sym, E_sym, e_sym] is given, the routine rewrites the
+ *   explicit true anomaly trigonometrics cos(f), sin(f) as exact functions of
+ *   the eccentric anomaly E before substituting r. this is the path for terms
+ *   with k > -1, for which the eccentric anomaly gives a clean quadrature.
+ *   the caller must pass r_expr and jac already written in E (and, for a third
+ *   body, in the third body symbols f_3, E_3, e_3).
+ Parameters:
+ * expr: the original perturbing potential expression.
+ * jac: the jacobian of the transformation e.g. dl df (true) or dl dE (ecc).
+ * r_sym: symbol for radial distance.
+ * r_expr: the analytical expression for r radial distance (in f or in E,
+ *         consistent with the chosen anomaly).
+ * [ecc_syms]: optional list [f_sym, E_sym, e_sym] selecting the eccentric
+ *             anomaly path. absent means true anomaly path.
+ * ============================================================================ */
+prepare_potential_closedform(expr, jac, r_sym, r_expr, [ecc_syms]) := block(
+    [expr_r, expr_simp, expr_trig, expr_int, ci_s, si_s,
+     use_ecc, f_sym, E_sym, e_sym, expr_pre],
+    
+    ci_s : gensym("ci_"), si_s : gensym("si_"),
+
+    /* decide the anomaly path from the optional argument */
+    use_ecc : if length(ecc_syms) >= 1 then true else false,
+
+    /* protect inclination symbols before any trig manipulation */
+    expr_pre : subst([cos_i = ci_s, sin_i = si_s], expr),
+
+    if use_ecc then (
+        /* eccentric anomaly path: rewrite explicit true anomaly in terms of E */
+        f_sym : ecc_syms[1],
+        E_sym : ecc_syms[2],
+        e_sym : ecc_syms[3],
+
+        /* expand multiple angles of f into first degree cos(f), sin(f) */
+        expr_pre : celmec_trigexpand(expr_pre, f_sym),
+
+        /* replace explicit cos(f), sin(f) by exact eccentric anomaly relations */
+        expr_pre : subst(
+            [ cos(f_sym) = cos_f_exact(f_sym, e_sym, E_sym),
+              sin(f_sym) = sin_f_exact(f_sym, e_sym, E_sym) ],
+            expr_pre
+        )
+    ),
+
+    /* substitute r by its conic expression and attach the jacobian.
+       in the ecc path r_expr and jac are already given in E by the caller. */
+    expr_r : subst(r_sym = r_expr, expr_pre * jac),
+    expr_simp : ratsimp(expr_r),
+    expr_trig : trigreduce(expr_simp),
+    expr_int : ratexpand(expr_trig),
+
+    return(subst([ci_s = cos_i, si_s = sin_i], expr_int))
+)$
+
+/* ============================================================================
+ * FUNCTION: eliminate_parallax
+ * ============================================================================
+ * Description:
+ * Implements Deprit's elimination of the parallax (Deprit 1981) reformulated 
+ * in Delaunay variables following Lara, San-Juan & Lopez-Ochoa (2014, 2015).
+ *
+ * The transformation removes all short-period terms from the Hamiltonian 
+ * EXCEPT those proportional to 1/r^2, by exploiting the identity:
+ *   1/r^m = (1/r^2) * [(1 + e*cos(f))^(m-2)] / (a*eta^2)^(m-2),  m > 2
+ *
+ * Unlike a standard Delaunay normalization (which averages over l or f),
+ * the parallax elimination only removes the EXPLICIT appearance of f,
+ * preserving the implicit dependence through r. The resulting Hamiltonian
+ * H_{0,1} still contains short-period terms via the factor 1/r^2.
+ *
+ * Reference:
+ * - Deprit, A. (1981). Celest. Mech. 24(2), 111-153.
+ * - Lara, M., San-Juan, J.F., Lopez-Ochoa, L.M. (2015). Celest. Mech. Dyn. Astron.
+ * - Coffey, S. & Deprit, A. (1982). J. Guidance 5(4), 366-371.
+ *
+ * Parameters:
+ * U_raw       (expr): The raw perturbing potential in terms of (r, f, g, i).
+ *                     Must be proportional to 1/r^(n+1) for degree n.
+ * f_var     (symbol): The true anomaly variable (typically 'f').
+ * r_var     (symbol): The radius variable (typically 'r').
+ * a_var     (symbol): The semi-major axis variable.
+ * e_var     (symbol): The eccentricity variable.
+ * eta_var   (symbol): The eccentricity function sqrt(1-e^2).
+ * n_mean    (expr)  : The Keplerian mean motion (mu^2/L^3).
+ *
+ * Returns:
+ * A list [H_star, W_parallax] where:
+ *   H_star      : The simplified Hamiltonian (terms free of explicit f,
+ *                 still containing 1/r^2).
+ *   W_parallax  : The generating function of the parallax transformation.
+ *
+ * Usage Example:
+ * >> U2: derive_zonal_potential(2, mu, r, f, a, e, i, g, R, true);
+ * >> [H_par, W_par]: eliminate_parallax(U2, f, r, a, e, eta, mu^2/L^3);
+ * ============================================================================ */
+eliminate_parallax(U_raw, f_var, r_var, a_var, e_var, eta_var, n_mean) := block(
+    [
+        U_reduced, U_expanded, terms_list, H_star, H_per, 
+        W_par, term, jac_df_dl
+    ],
+    
+    /* ---------------------------------------------------------------
+     * Step 1: Reduce all powers of 1/r to 1/r^2 using the identity
+     *   1/r^m = (1/r^2) * (1 + e*cos(f))^(m-2) / (a*eta^2)^(m-2)
+     *
+     * Strategy: multiply U_raw by r^2, substitute r = a*eta^2/(1+e*cos(f)),
+     * expand trigonometrically, then divide back by r^2.
+     * This converts all (1/r^m) factors into (1/r^2) * polynomial_in_cos_f.
+     * --------------------------------------------------------------- */
+    
+    /* Multiply by r^2 to clear the 1/r^2 factor */
+    U_reduced: ratsimp(U_raw * r_var^2),
+    
+    /* Now substitute r = a*eta^2/(1+e*cos(f)) in the REMAINING r dependence.
+       After multiplying by r^2, the original 1/r^3 becomes 1/r, 
+       the 1/r^4 becomes 1/r^2 -> 1, etc.
+       So the remaining r factors get replaced. */
+    U_reduced: subst(r_var = a_var * eta_var^2 / (1 + e_var*cos(f_var)), U_reduced),
+    U_reduced: ratsimp(U_reduced),
+    
+    /* trigreduce to linearize into cos(kf + mg) form and simplification */
+    U_reduced: trigreduce(U_reduced),
+    U_reduced: ratexpand(U_reduced),
+    
+    /* ---------------------------------------------------------------
+     * Step 2: Separate into parallax-free and periodic parts.
+     *
+     * H_star gets terms FREE of the explicit true anomaly f.
+     * H_per  gets terms containing f explicitly.
+     *
+     * IMPORTANT: This is NOT an average. H_star retains the 1/r^2 
+     * factor (which will be restored), preserving implicit f-dependence.
+     * --------------------------------------------------------------- */
+    terms_list: args(U_reduced),
+    H_star: 0,
+    H_per: 0,
+    
+    for term in terms_list do (
+        if freeof(f_var, term) then
+            H_star: H_star + term
+        else
+            H_per: H_per + term
+    ),
+    
+    /* Restore the 1/r^2 factor */
+    H_star: H_star / r_var^2,
+    H_per:  H_per  / r_var^2,
+    
+    /* Simplify */
+    H_star: ratsimp(H_star),
+    H_per:  ratsimp(H_per),
+    
+    /* ---------------------------------------------------------------
+     * Step 3: Compute the generating function W by quadrature.
+     *
+     * From the homological equation: n * dW/dl = H_per
+     * Using the relation: a^2 * eta * dl = r^2 * df  (Eq. 21 of Lara)
+     * We get: dW/df = (H_per * r^2) / (n * a^2 * eta)
+     *
+     * But H_per already has the 1/r^2 factor, so:
+     * dW/df = H_per * r^2 / (n * a^2 * eta)
+     *       = [terms_periodic / r^2] * r^2 / (n * a^2 * eta)
+     *       = terms_periodic / (n * a^2 * eta)
+     *
+     * The integrand is a polynomial in cos(f) and sin(f), so the 
+     * quadrature is elementary.
+     * --------------------------------------------------------------- */
+    
+    /* Form the integrand: H_per * r^2 / (n_mean * a^2 * eta) 
+       = (periodic_terms/r^2) * r^2 / (n_mean * a^2 * eta)
+       = periodic_terms / (n_mean * a^2 * eta) */
+    
+    /* Use the generating_function_quadrature on the periodic part 
+       after multiplying by the Jacobian factor */
+    W_par: -generating_function_quadrature(H_per * r_var^2, f_var) / (n_mean * a_var^2 * eta_var),
+    
+    /* Sanitize */
+    W_par: sanitize_hamiltonian_expression(W_par, true, false),
+    H_star: sanitize_hamiltonian_expression(H_star, true, false),
+    
+    print("=== Parallax Elimination Complete ==="),
+    print("  H_star terms:", nterms(H_star)),
+    print("  W_par terms:", nterms(W_par)),
+    print("  Contains r:", not freeof(r_var, H_star)),
+    print("  Free of f:", freeof(f_var, H_star)),
+    
+    return([H_star, W_par])
+)$
+
+/* ============================================================================
+ FUNCTION: evaluate_perturbation_ratio
+ Description:
+ evaluates the magnitude ratio between two perturbation potentials over a
+ range of values for a scanning variable. for each value in the scan list,
+ both potentials are numerically evaluated and their ratio is computed.
+
+ two modes of operation:
+ - print_res = true:  prints a formatted table to stdout with dominance
+                       indicators. returns nothing useful.
+ - print_res = false: returns a list of [val, |U_pert1|, |U_pert2|, ratio]
+                       suitable for plotting or further analysis.
+
+ Dominance thresholds (print mode only):
+ ratio > 10   -> U_pert2 dominates (numerator is more than one order of
+                 magnitude larger than denominator).
+ 0.1 < ratio < 10 -> comparable (both perturbations are within one order
+                 of magnitude and should be treated at the same level in
+                 the perturbation hierarchy).
+ ratio < 0.1  -> U_pert1 dominates (denominator is more than one order of
+                 magnitude larger than numerator).
+ the thresholds are symmetric about unity so the classification is
+ invariant under exchange of U_pert1 and U_pert2.
+
+ Parameters:
+ U_pert1      : symbolic expression for the reference perturbation (denominator).
+ U_pert2      : symbolic expression for the compared perturbation (numerator).
+ var_scan     : the symbolic variable to be scanned (e.g., r).
+ scan_values  : list of numerical values for var_scan.
+ subst_params1: list of substitution equations for U_pert1.
+ subst_params2: list of substitution equations for U_pert2.
+ label_var    : string label for the scanning variable (e.g., "a").
+ label_unit   : string label for the physical unit (e.g., "km").
+ label_pert1  : string label for U_pert1 (e.g., "U_J2").
+ label_pert2  : string label for U_pert2 (e.g., "U_3b").
+ label_ratio  : string label for the ratio (e.g., "eta").
+ print_res    : boolean flag. true = print formatted output, false = return
+                list of [val, |U_pert1|, |U_pert2|, ratio].
+
+ Returns (print_res = false):
+ a list of lists [[val_1, u1_1, u2_1, rat_1], ..., [val_N, u1_N, u2_N, rat_N]]
+ ordered by scan_values. each sublist contains:
+   val : numerical value of var_scan
+   u1  : float(abs(U_pert1)) evaluated at val
+   u2  : float(abs(U_pert2)) evaluated at val
+   rat : u2 / u1
+ ============================================================================ */
+evaluate_perturbation_ratio(
+        U_pert1, U_pert2,
+        var_scan, scan_values,
+        subst_params1, subst_params2,
+        label_var, label_unit, label_pert1, label_pert2, label_ratio, print_res
+    ) := block(
+    [u1, u2, rat, dominance, results: []],
+    
+    if print_res then
+        printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
+    
+    for val in scan_values do (
+        u1: float(abs(subst(append([var_scan = val], subst_params1), U_pert1))),
+        u2: float(abs(subst(append([var_scan = val], subst_params2), U_pert2))),
+        rat: u2 / u1,
+        if print_res then (
+            dominance: if rat > 10 then sconcat("<<< ", label_pert2, " dominates")
+                        elseif rat < 0.1 then sconcat("<<< ", label_pert1, " dominates")
+                        else "~ comparable",
+            printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
+                   label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
+        ) else (
+            results: endcons([val, u1, u2, rat], results)
+        )
+    ),
+    
+    if not(print_res) then results
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

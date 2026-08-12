@@ -1,4 +1,4 @@
-/* derivepotential.mac */
+/* potentialmodels.mac */
 
 suppress_trace_warnings: true$
 
@@ -10,7 +10,7 @@ suppress_trace_warnings: true$
 file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 
 /* now a simple load works because maxima will look in the directory we just added. */
-load("analyticalfunctions.mac")$ /* for celmec trigexpand */
+load("keplerkinematics.mac")$ /* for celmec trigexpand */
 load("celmechseries.mac")$
 
 /* loads the vect package for gradient jacobian calculations */
@@ -484,107 +484,6 @@ derive_srp_potential(r, a, e, i, f, g, h, muSun, beta, rSun, aSun, eSun, iSun, f
 )$
 
 /* ============================================================================
- FUNCTION: prepare_potential_poisson
- Description:prepares the potential for poisson series expansion.
- Parameters:
- * expr: original potential expression
- * order_e: truncation order for eccentricity
- * m_symb: symbol for mean anomaly
- * e_symb: symbol for eccentricity
- * e_symb: symbol for eccentric anomaly
- * f_symb: symbol for true anomaly
- * r_symb: symbol for radial distance
- * r_expr: expression to substitute for r_symb
- * ============================================================================ */
-prepare_potential_poisson(expr, order_e, M_symb, e_symb, E_symb, f_symb, r_symb, r_expr) := block(
-    [U, temp, cos_f, sin_f],
-    
-    U: subst(r_symb=r_expr, expr),
-    
-    cos_f: get_cos_f_series(order_e, M_symb, e_symb, E_symb),
-    sin_f: get_sin_f_series(order_e, M_symb, e_symb, E_symb),
-    
-    /* 1. replaces r and f with the series in l and e */
-    temp: subst([cos(f_symb)=cos_f, sin(f_symb)=sin_f], celmec_trigexpand(U, f_symb)),    
-
-    /* 2. taylor series to truncate eccentricity */
-    temp: ratdisrep(taylor(temp, e_symb, 0, order_e)),    
-
-    /* 3. trigonometric linearization */
-    temp: trigreduce(temp),    
-
-    /* 4. final organization */
-    return(ratexpand(temp))
-)$
-
-/* ============================================================================
- FUNCTION: prepare_potential_closedform
- Description:prepares a perturbing potential for closed form orbital averaging. 
- * the process involves substituting the radial distance r with its conic 
- * expression multiplying by the jacobian of the transformation one dimensional 
- * jacobian matrix and applying algebraic and trigonometric simplifications. 
- * the output is a linearized expansion that facilitates the separation of 
- * secular and periodic terms.
- *
- * dual anomaly support via the optional ecc_syms argument:
- * - if ecc_syms is empty (default), the routine works in the true anomaly f.
- *   the explicit f is preserved and later linearized by the solver. this is
- *   the appropriate path for terms with inverse powers r^k, k <= -2.
- * - if ecc_syms = [f_sym, E_sym, e_sym] is given, the routine rewrites the
- *   explicit true anomaly trigonometrics cos(f), sin(f) as exact functions of
- *   the eccentric anomaly E before substituting r. this is the path for terms
- *   with k > -1, for which the eccentric anomaly gives a clean quadrature.
- *   the caller must pass r_expr and jac already written in E (and, for a third
- *   body, in the third body symbols f_3, E_3, e_3).
- Parameters:
- * expr: the original perturbing potential expression.
- * jac: the jacobian of the transformation e.g. dl df (true) or dl dE (ecc).
- * r_sym: symbol for radial distance.
- * r_expr: the analytical expression for r radial distance (in f or in E,
- *         consistent with the chosen anomaly).
- * [ecc_syms]: optional list [f_sym, E_sym, e_sym] selecting the eccentric
- *             anomaly path. absent means true anomaly path.
- * ============================================================================ */
-prepare_potential_closedform(expr, jac, r_sym, r_expr, [ecc_syms]) := block(
-    [expr_r, expr_simp, expr_trig, expr_int, ci_s, si_s,
-     use_ecc, f_sym, E_sym, e_sym, expr_pre],
-    
-    ci_s : gensym("ci_"), si_s : gensym("si_"),
-
-    /* decide the anomaly path from the optional argument */
-    use_ecc : if length(ecc_syms) >= 1 then true else false,
-
-    /* protect inclination symbols before any trig manipulation */
-    expr_pre : subst([cos_i = ci_s, sin_i = si_s], expr),
-
-    if use_ecc then (
-        /* eccentric anomaly path: rewrite explicit true anomaly in terms of E */
-        f_sym : ecc_syms[1],
-        E_sym : ecc_syms[2],
-        e_sym : ecc_syms[3],
-
-        /* expand multiple angles of f into first degree cos(f), sin(f) */
-        expr_pre : celmec_trigexpand(expr_pre, f_sym),
-
-        /* replace explicit cos(f), sin(f) by exact eccentric anomaly relations */
-        expr_pre : subst(
-            [ cos(f_sym) = cos_f_exact(f_sym, e_sym, E_sym),
-              sin(f_sym) = sin_f_exact(f_sym, e_sym, E_sym) ],
-            expr_pre
-        )
-    ),
-
-    /* substitute r by its conic expression and attach the jacobian.
-       in the ecc path r_expr and jac are already given in E by the caller. */
-    expr_r : subst(r_sym = r_expr, expr_pre * jac),
-    expr_simp : ratsimp(expr_r),
-    expr_trig : trigreduce(expr_simp),
-    expr_int : ratexpand(expr_trig),
-
-    return(subst([ci_s = cos_i, si_s = sin_i], expr_int))
-)$
-
-/* ============================================================================
  * function: estimate_harmonics_triaxial
  * ============================================================================
  * description: computes the unnormalized gravitational harmonic coefficients
@@ -707,4 +606,33 @@ print_harmonics(harm_list) := block(
     for entry in harm_list do (
         printf(true, "~4d ~4d ~20,12e~%", entry[1], entry[2], float(entry[3]))
     )
+)$
+
+/* ============================================================================
+ * function: hill_radius
+ * description: computes the hill sphere radius of a secondary body in
+ * heliocentric orbit. returns either the perihelion value (conservative
+ * bound, useful for bounding the stability region of satellites around
+ * the secondary) or the mean value based on the semi-major axis.
+ * parameters:
+ * a_helioc_km (float): semi-major axis of the heliocentric orbit [km].
+ * e_helioc (float): eccentricity of the heliocentric orbit [-].
+ * m_body_kg (float): mass of the secondary body [kg].
+ * m_sun_kg (float): mass of the sun [kg].
+ * is_perihelion (bool): if true, returns r_h at perihelion via
+ *                       a * (1 - e) * (m / (3 * m_sun))^(1/3);
+ *                       if false, returns r_h at the semi-major axis via
+ *                       a * (m / (3 * m_sun))^(1/3).
+ * ============================================================================ */
+hill_radius(a_helioc_km, e_helioc, m_body_kg, m_sun_kg, is_perihelion) := block(
+    [mass_ratio_cbrt, r_hill],
+
+    mass_ratio_cbrt: (m_body_kg / (3 * m_sun_kg))^(1/3), /* cbrt is cube root */
+
+    if is_perihelion then
+        r_hill: a_helioc_km * (1 - e_helioc) * mass_ratio_cbrt
+    else
+        r_hill: a_helioc_km * mass_ratio_cbrt,
+
+    r_hill
 )$

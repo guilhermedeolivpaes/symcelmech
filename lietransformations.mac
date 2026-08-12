@@ -8,10 +8,12 @@ redefine_warn: false$
 file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 
 /* loads modules that will be used */
-load("analyticalfunctions.mac")$
+load("poissonbracket.mac")$
+load("perturbationtools.mac")$
 load("average.mac")$
-load("celmechseries.mac")$
-load("algebraicutils.mac")$
+load("keplerkinematics.mac")$
+load("postprocessing.mac")$
+load("canonicalsetup.mac")$ 
 
 
 /* ============================================================================

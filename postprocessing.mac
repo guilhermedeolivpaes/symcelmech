@@ -1,4 +1,4 @@
-/* algebraicutils.mac */
+/* postprocessing.mac */
 
 /* turn off reset warnings to load the package cleanly */
 suppress_trace_warnings: true$
@@ -10,46 +10,7 @@ suppress_trace_warnings: true$
  in the same folder, regardless of the worksheet's location. */
 file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 
-load("analyticalfunctions.mac")$ 
-
-/* ============================================================================
- FUNCTION: setup_pb_cache
- Description:
- initializes and manages the memoization system for poisson bracket calculations.
-
- Parameters:
- vlist: the list of canonical variables to be used by the poisson bracket engine.
- is_closed: routing flag for the poisson bracket engine.
- ============================================================================ */
-setup_pb_cache(vlist, is_closed) := (
-    kill(_pb_hash, pb_memo),
-    
-    /* funmake creates the function structure by injecting the content of vlist and the flag in a closed form */
-    define(_pb_hash[f1, f2], funmake('poisson_bracket, [f1, f2, vlist, is_closed])),
-    
-    /* logical wrapper for managing antisymmetry and serial formats */
-    pb_memo(A, B) := block(
-        [gA, gB],
-        /* protection against void terms */
-        if A = 0 or B = 0 then return(0),
-        
-        /* converts to a general representation to avoid breaking the hash */
-        gA : ratdisrep(A),
-        gB : ratdisrep(B),
-        
-        if gA = gB then return(0),
-        
-        if orderlessp(gA, gB) then 
-            _pb_hash[gA, gB] 
-        else 
-            -_pb_hash[gB, gA]
-    )
-)$
-
-/* memoization in maxima, using square brackets instead of parentheses, transforms the function into an array function
-   or a table lookup function. unlike a regular function that reprocesses the code every time,
-   a function with memoization works like a notebook: the first time you request a calculation, maxima calculates and
-   notes the result; in subsequent times, it simply reads what it noted. */
+/* load("keplerkinematics.mac")$ */
 
 /* ============================================================================
  FUNCTION: deatomize_parameters
@@ -240,65 +201,6 @@ chop_series(expr, tol) := block(
 )$
 
 /* ============================================================================
- FUNCTION: sanitize_hamiltonian_expression_old
- Description:
- sanitizes, simplifies, and standardizes symbolic hamiltonian expressions.
-
- Parameters:
- expr: the symbolic expression to be processed.
- is_closed: flag for applying advanced simplifications for closed form theories.
- ecc_order: order for taylor expansion in eccentricity, or false.
- ============================================================================ */
-sanitize_hamiltonian_expression_old(expr, is_closed, ecc_order) := block(
-    [temp: expr, tol: 1e-15],
-
-
-    temp : chop_series(temp, tol),
-
-    if is_closed then (
-        /* kill sin squared plus cos squared and group common denominators. */
-        temp : trigsimp(ratsimp(temp)),
-        
-        /* factor polynomials */
-        temp : factor(temp),
-
-        temp : ratsubst(eta^2, 1-e^2, temp),
-        temp : ratsubst(eta, G/L, temp)
-    ),
-
-
-    temp : ratsubst(G*sin_i, sqrt(G^2 - H^2), temp),
-    temp : ratsubst(L*e, sqrt(L^2 - G^2), temp),
-    temp : ratsubst(L*e, sqrt(L-G)*sqrt(L+G), temp),
-    
-    /* unifies inclination and semi axis. */
-    temp : subst([
-        cos(i) = cos_i, 
-        sin(i)^2 = (1 - cos_i^2),
-        cos(2*i) = (2*cos_i^2 - 1),
-        cos(4*i) = (8*cos_i^2*(cos_i^2 - 1) + 1),
-        a = L^2/mu, 
-        H = G*cos_i
-    ], temp),
-    
-    /* delaunay and s_gen identities */
-    temp : ratsubst(1 - cos_i^2, sin_i^2, temp),
-    temp : ratsubst(e, sqrt(1-G^2/L^2), temp),
-    temp : ratsubst(sin_i, sqrt(1-H^2/G^2), temp),
-    temp : ratsubst(L^2*e^2, L^2 - G^2, temp),
-    temp : ratsubst(L^2*(1-e^2), G^2, temp), 
-
-    /* taylor expansion */
-    if not(is_closed) and ecc_order # false then (
-        /* the ratdisrep here guarantees that taylor does not work with cre garbage. */
-        temp : ratdisrep(taylor(temp, e, 0, ecc_order))
-    ),
-    
-    /* returning a general representation for the hash table will not cause an error */
-    return(ratdisrep(temp))
-)$
-
-/* ============================================================================
  FUNCTION: sanitize_hamiltonian_expression
  Description:
  sanitizes, simplifies, and standardizes symbolic hamiltonian expressions.
@@ -348,28 +250,6 @@ sanitize_hamiltonian_expression(expr, is_closed, ecc_order) := block(
     ),
 
     return(ratdisrep(temp))
-)$
-
-/* ============================================================================
- FUNCTION: clean_pb
- Description:
- simplifies the results of poisson bracket operations by enforcing the 
- fundamental kinematic relationship between eccentricity and eta.
-
- Parameters:
- pb: the raw output from a poisson bracket calculation.
- ============================================================================ */
-clean_pb(pb) := block(
-    [pb_simp, pb_eta, e_s, eta_s],
-
-    e_s : gensym("e_"),
-    eta_s : gensym("eta_"),
-
-    pb_simp : subst([e = e_s, eta = eta_s], pb),
-    pb_simp : trigsimp(ratsimp(pb_simp)),
-    pb_eta  : ratsubst(eta_s^2, 1 - e_s^2, factor(pb_simp)),
-
-    return(subst([e_s = e, eta_s = eta], pb_eta))
 )$
 
 /* ============================================================================
@@ -466,83 +346,7 @@ get_delaunay_to_kepler_rules(mu_val, d_list, k_list) := block(
     return(local_rules)
 )$
 
-/* ============================================================================
- FUNCTION: evaluate_perturbation_ratio
- Description:
- evaluates the magnitude ratio between two perturbation potentials over a
- range of values for a scanning variable. for each value in the scan list,
- both potentials are numerically evaluated and their ratio is computed.
-
- two modes of operation:
- - print_res = true:  prints a formatted table to stdout with dominance
-                       indicators. returns nothing useful.
- - print_res = false: returns a list of [val, |U_pert1|, |U_pert2|, ratio]
-                       suitable for plotting or further analysis.
-
- Dominance thresholds (print mode only):
- ratio > 10   -> U_pert2 dominates (numerator is more than one order of
-                 magnitude larger than denominator).
- 0.1 < ratio < 10 -> comparable (both perturbations are within one order
-                 of magnitude and should be treated at the same level in
-                 the perturbation hierarchy).
- ratio < 0.1  -> U_pert1 dominates (denominator is more than one order of
-                 magnitude larger than numerator).
- the thresholds are symmetric about unity so the classification is
- invariant under exchange of U_pert1 and U_pert2.
-
- Parameters:
- U_pert1      : symbolic expression for the reference perturbation (denominator).
- U_pert2      : symbolic expression for the compared perturbation (numerator).
- var_scan     : the symbolic variable to be scanned (e.g., r).
- scan_values  : list of numerical values for var_scan.
- subst_params1: list of substitution equations for U_pert1.
- subst_params2: list of substitution equations for U_pert2.
- label_var    : string label for the scanning variable (e.g., "a").
- label_unit   : string label for the physical unit (e.g., "km").
- label_pert1  : string label for U_pert1 (e.g., "U_J2").
- label_pert2  : string label for U_pert2 (e.g., "U_3b").
- label_ratio  : string label for the ratio (e.g., "eta").
- print_res    : boolean flag. true = print formatted output, false = return
-                list of [val, |U_pert1|, |U_pert2|, ratio].
-
- Returns (print_res = false):
- a list of lists [[val_1, u1_1, u2_1, rat_1], ..., [val_N, u1_N, u2_N, rat_N]]
- ordered by scan_values. each sublist contains:
-   val : numerical value of var_scan
-   u1  : float(abs(U_pert1)) evaluated at val
-   u2  : float(abs(U_pert2)) evaluated at val
-   rat : u2 / u1
- ============================================================================ */
-evaluate_perturbation_ratio(
-        U_pert1, U_pert2,
-        var_scan, scan_values,
-        subst_params1, subst_params2,
-        label_var, label_unit, label_pert1, label_pert2, label_ratio, print_res
-    ) := block(
-    [u1, u2, rat, dominance, results: []],
-    
-    if print_res then
-        printf(true, "=== ~a = |~a| / |~a| ===~%", label_ratio, label_pert2, label_pert1),
-    
-    for val in scan_values do (
-        u1: float(abs(subst(append([var_scan = val], subst_params1), U_pert1))),
-        u2: float(abs(subst(append([var_scan = val], subst_params2), U_pert2))),
-        rat: u2 / u1,
-        if print_res then (
-            dominance: if rat > 10 then sconcat("<<< ", label_pert2, " dominates")
-                        elseif rat < 0.1 then sconcat("<<< ", label_pert1, " dominates")
-                        else "~ comparable",
-            printf(true, "~a = ~,2f ~a -> |~a| = ~,6e, |~a| = ~,6e, ~a = ~,6f  ~a~%",
-                   label_var, val, label_unit, label_pert1, u1, label_pert2, u2, label_ratio, rat, dominance)
-        ) else (
-            results: endcons([val, u1, u2, rat], results)
-        )
-    ),
-    
-    if not(print_res) then results
-)$
-
-/**
+/*
  * export_lie_corrections_to_julia(comp_exprs, comp_names, common_vars_list, output_dir, chunk_size, prefix)
  *
  * Exports each component of a Lie correction vector (delta_star) as a standalone
@@ -619,33 +423,4 @@ export_lie_corrections_to_julia(comp_exprs, comp_names, common_vars_list, output
     ),
 
     printf(true, "Exported ~d components with prefix '~a' to ~a~%", length(comp_names), prefix, output_dir)
-)$
-
-/* ============================================================================
- * function: hill_radius
- * description: computes the hill sphere radius of a secondary body in
- * heliocentric orbit. returns either the perihelion value (conservative
- * bound, useful for bounding the stability region of satellites around
- * the secondary) or the mean value based on the semi-major axis.
- * parameters:
- * a_helioc_km (float): semi-major axis of the heliocentric orbit [km].
- * e_helioc (float): eccentricity of the heliocentric orbit [-].
- * m_body_kg (float): mass of the secondary body [kg].
- * m_sun_kg (float): mass of the sun [kg].
- * is_perihelion (bool): if true, returns r_h at perihelion via
- *                       a * (1 - e) * (m / (3 * m_sun))^(1/3);
- *                       if false, returns r_h at the semi-major axis via
- *                       a * (m / (3 * m_sun))^(1/3).
- * ============================================================================ */
-hill_radius(a_helioc_km, e_helioc, m_body_kg, m_sun_kg, is_perihelion) := block(
-    [mass_ratio_cbrt, r_hill],
-
-    mass_ratio_cbrt: (m_body_kg / (3 * m_sun_kg))^(1/3), /* cbrt is cube root */
-
-    if is_perihelion then
-        r_hill: a_helioc_km * (1 - e_helioc) * mass_ratio_cbrt
-    else
-        r_hill: a_helioc_km * mass_ratio_cbrt,
-
-    r_hill
 )$

@@ -1,0 +1,156 @@
+/* keplerkinematics.mac */
+
+/* turn off reset warnings to load the package cleanly */
+redefine_warn: false$
+
+file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/* ============================================================================
+ * keplerian geometry closed form
+ * ============================================================================
+ Description:a collection of exact geometric relations for the two body problem. 
+ * these functions facilitate the analytical mapping between the different 
+ * anomalies mean eccentric and true and the radial distance without 
+ * relying on series expansions.
+ * ============================================================================ */
+
+
+/* ============================================================================
+ FUNCTION: sin_f_exact
+ Description:computes the sine of the true anomaly f as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+sin_f_exact(f_symb, e_symb, E_symb) := block(
+    [sin_f],
+
+    sin_f: ((1-e_symb^2)^(1/2)/(1-e_symb*cos(E_symb)))*sin(E_symb), 
+
+    return(sin_f)
+)$
+
+/* ============================================================================
+ FUNCTION: cos_f_exact
+ Description:computes the cosine of the true anomaly f as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+cos_f_exact(f_symb, e_symb, E_symb) := block(
+
+    [cos_f],
+
+    cos_f: (cos(E_symb) - e_symb)/(1-e_symb*cos(E_symb)),
+
+    return(cos_f)
+)$
+
+/* ============================================================================
+ FUNCTION: cos_E_exact
+ Description:computes the cosine of the eccentric anomaly e as a function of the 
+ * true anomaly f and eccentricity e. inverse relation of cos_f_exact.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * E_symb: symbol for eccentric anomaly
+ * ============================================================================ */
+cos_E_exact(f_symb, e_symb, E_symb) := block(
+    [cos_E],
+
+    cos_E: (e_symb + cos(f_symb))/(1 + e_symb*cos(f_symb)),
+
+    return(cos_E)
+)$
+
+/* ============================================================================
+ FUNCTION: sin_E_exact
+ Description:computes the sine of the eccentric anomaly e as a function of the 
+ * true anomaly f and eccentricity e. inverse relation of sin_f_exact.
+ Parameters:
+ * f_symb: symbol for true anomaly
+ * e_symb: symbol for eccentricity
+ * E_symb: symbol for eccentric anomaly
+ * ============================================================================ */
+sin_E_exact(f_symb, e_symb, E_symb) := block(
+    [sin_E],
+
+    sin_E: ((1-e_symb^2)^(1/2)*sin(f_symb))/(1 + e_symb*cos(f_symb)),
+
+    return(sin_E)
+)$
+
+/* ============================================================================
+ FUNCTION: r_over_a_exact
+ Description:computes the normalized radial distance r a as a function of the 
+ * eccentric anomaly e and eccentricity e.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+r_over_a_exact(e_symb, E_symb) := block(
+
+    [r_a],
+
+    r_a: (1 - e_symb*cos(E_symb)),
+
+    return(r_a)
+)$
+
+/* ============================================================================
+ FUNCTION: r_two_body_exact
+ Description:computes the exact radial distance r in terms of the true anomaly f.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * a_symb: symbol for semi major axis
+ * f_symb: symbol for true anomaly
+ * ============================================================================ */
+r_two_body_exact(e_symb, a_symb, f_symb) := block(
+    [r],
+
+    r: a_symb*(1-e_symb^2)/(1+e_symb*cos(f_symb)),
+
+    return(r)
+)$
+
+/* ============================================================================
+ FUNCTION: dm_df
+ Description:computes the exact jacobian dm df representing the ratio between the 
+ * mean anomaly increment and the true anomaly increment.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * f_symb: symbol for true anomaly
+ * ============================================================================ */
+dM_df(e_symb, f_symb) := block(
+    [dM],
+
+    dM: (1 - e_symb^2)^(3/2) / (1 + e_symb * cos(f_symb))^2,
+    
+    return(dM)
+)$
+
+/* ============================================================================
+ FUNCTION: dm_dE
+ Description:computes the exact jacobian dm de representing the ratio between the 
+ * mean anomaly increment and the eccentric anomaly increment derived 
+ * directly from keplers equation m equals e minus e sin e.
+ Parameters:
+ * e_symb: symbol for eccentricity
+ * e_symb_ecc: symbol for eccentric anomaly
+ * ============================================================================ */
+dM_dE(e_symb, E_symb) := block(
+    [dM],
+
+    dM: (1-e_symb*cos(E_symb)),
+
+    return(dM)
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$

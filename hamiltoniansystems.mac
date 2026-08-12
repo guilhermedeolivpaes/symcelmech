@@ -1,0 +1,395 @@
+/* hamiltoniansystems.mac */
+
+suppress_trace_warnings: true$
+
+load("canonicalsetup.mac")$
+
+kill(a, e, i, f, l, g, h, L, G, H)$
+
+/* adds restrictions on the range of values for integration and simplification. */
+
+assume(a>0, e>=0, e<1, i>=0, i<=%pi)$
+
+depends([e], [L, G])$
+depends(sin_i, [G, H])$
+depends(cos_i, [G, H])$
+
+/* d(e)/dl */
+gradef(e, L, (1 - e^2) / (L * e))$
+
+/* d(e)/dg */
+gradef(e, G, -G / (L^2 * e))$
+
+/* d(sin_i)/dg */
+gradef(sin_i, G, ( H^2) / (G^3 * sin_i))$
+/* d(sin_i)/dh */
+gradef(sin_i, H, (-H) / (G^2 * sin_i))$
+
+/* d(cos_i)/dg */
+gradef(cos_i, G, -H/(G^2))$
+/* d(cos_i)/dh */
+gradef(cos_i, H, 1/G)$
+
+/* --------------------------------------------------------------------------
+ FUNCTION: hamilton_equations(f, momentavars, coordvars, t)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * extracts hamiltons canonical equations from a hamiltonian f,
+ * automatically generating the rates of change of generalized coordinates
+ * and conjugate momenta.
+ *
+ * the function is completely generic and independent of the chosen set of
+ * canonical variables: delaunay (l,g,h,l,g,h), poincare, whittaker,
+ * or any other canonical pair (q,p).
+ *
+ * arguments:
+ * f           - [symbolic expression] the hamiltonian of the system.
+ * momentavars - [list] list of conjugate momenta [p1, p2, ..., pn].
+ * coordvars   - [list] list of generalized coordinates [q1, q2, ..., qn].
+ * t           - [symbol] independent variable (time).
+ *
+ * return:
+ * [list] list with 2n differential equations in the form:
+ *         [dq1/dt = df/dp1, ..., dqn/dt = df/dpn,
+ *          dp1/dt = -df/dq1, ..., dpn/dt = -df/dqn]
+ *
+ * usage examples:
+ *   delaunay:  hamilton_equations(h, [l,g,h], [l,g,h], t)
+ *   poincare:  hamilton_equations(h_p, [x1,x2,x3], [y1,y2,y3], t)
+ *   extended:  hamilton_equations(h, [l,g,h,t], [l,g,h,tau], t)
+ *
+ * reference:
+ * 
+ * 
+ *
+ * -------------------------------------------------------------------------- */
+hamilton_equations(F, momentaVars, coordVars, t) := block(
+    [n, eqs_q, eqs_p],
+    setup_canonical_dependencies(),
+    n : length(coordVars),
+
+    /* 1. coordinates: dq/dt = dh/dp */
+    eqs_q : makelist('diff(coordVars[i], t) = diff(F, momentaVars[i]), i, 1, n),
+
+    /* 2. momenta: dp/dt = -dh/dq */
+    eqs_p : makelist('diff(momentaVars[i], t) = -diff(F, coordVars[i]), i, 1, n),
+    teardown_canonical_dependencies(),
+
+    return(append(eqs_q, eqs_p))
+)$
+
+/* --------------------------------------------------------------------------
+ FUNCTION: delaunay_to_poincare(expr)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * applies the canonical transformation from delaunay (l,g,h,l,g,h) to the
+ * non-singular poincare variables (y1,y2,y3,x1,x2,x3), removing
+ * singularities at e=0 and i=0.
+ *
+ * the transformation is defined by:
+ *
+ *   x1 = l,                                y1 = l + g + h,
+ *   x2 = sqrt(2) * sqrt(l-g) * cos(g+h),   y2 = -sqrt(2) * sqrt(l-g) * sin(g+h),
+ *   x3 = sqrt(2) * sqrt(g-h) * cos(h),     y3 = -sqrt(2) * sqrt(g-h) * sin(h).
+ *
+ * arguments:
+ * expr - [symbolic expression] expression in delaunay variables
+ *        (l, g, h, l, g, h).
+ *
+ * return:
+ * [expression] the same expression converted to poincare variables
+ *             (x1, x2, x3, y1, y2, y3).
+ *
+ * reference:
+ * - ferraz-mello, s. (2007). canonical perturbation theories: degenerate 
+ *   systems and resonance. springer. eq. 7.7.
+ * - lara, m. (2010). hamiltonian perturbation solutions for spacecraft orbit prediction. eq. 6.25.
+ * - morbidelli, a. (2002). modern celestial mechanics-aspects of solar system dynamics. eqs. 1.76 and 1.78 
+ *
+ * -------------------------------------------------------------------------- */
+delaunay_to_poincare(expr) := block(
+    [subst_rules, result],
+
+    /* inverse transformation: (x,y) -> (l,g,h,l,g,h)
+       solving (6.25) for delaunay variables:
+       
+       l = x1
+       g = x1 - (x2^2 + y2^2)/2
+       h = x1 - (x2^2 + y2^2)/2 - (x3^2 + y3^2)/2
+       
+       g + h = atan2(-y2, x2)
+       h     = atan2(-y3, x3)
+       g     = atan2(-y2, x2) - atan2(-y3, x3)
+       l     = y1 - atan2(-y2, x2)
+    */
+    subst_rules : [
+        L = X1,
+        G = X1 - (X2^2 + y2^2)/2,
+        H = X1 - (X2^2 + y2^2)/2 - (X3^2 + y3^2)/2,
+        l = y1 - atan2(-y2, X2),
+        g = atan2(-y2, X2) - atan2(-y3, X3),
+        h = atan2(-y3, X3)
+    ],
+
+    result : subst(subst_rules, expr),
+    return(result)
+)$
+
+
+/* --------------------------------------------------------------------------
+ FUNCTION: poincare_to_delaunay(expr)
+ * --------------------------------------------------------------------------
+ *
+ Description:
+ * applies the direct transformation, from poincare (y1,y2,y3,x1,x2,x3) to
+ * delaunay (l,g,h,l,g,h).
+ *
+ * arguments:
+ * expr - [expression] expression in poincare variables.
+ *
+ * return:
+ * [expression] converted to delaunay variables.
+ *
+ * reference:
+ * - ferraz-mello, s. (2007). canonical perturbation theories: degenerate 
+ *   systems and resonance. springer. eq. 7.7.
+ * - lara, m. (2010). hamiltonian perturbation solutions for spacecraft orbit prediction. eq. 6.25.
+ * - morbidelli, a. (2002). modern celestial mechanics-aspects of solar system dynamics. eqs. 1.76 and 1.78
+ *
+ * -------------------------------------------------------------------------- */
+poincare_to_delaunay(expr) := block(
+    [subst_rules, result],
+
+    /* direct transformation: (l,g,h,l,g,h) -> (x,y) according to eq. 6.25 */
+    subst_rules : [
+        X1 = L,
+        X2 = sqrt(2) * sqrt(L - G) * cos(g + h),
+        X3 = sqrt(2) * sqrt(G - H) * cos(h),
+        y1 = l + g + h,
+        y2 = -sqrt(2) * sqrt(L - G) * sin(g + h),
+        y3 = -sqrt(2) * sqrt(G - H) * sin(h)
+    ],
+
+    result : subst(subst_rules, expr),
+    return(result)
+)$
+
+/* ============================================================================
+ * function: can_transf_type1
+ * description: applies the type 1 generating function expressions to a proposed
+ * W1(q, Q, t), returning the old momenta as functions of (q, Q, t), the new
+ * momenta as functions of (q, Q, t), and the partial time derivative of W1.
+ * the caller decides how to use the resulting equations (invert, substitute
+ * into a hamiltonian, etc.).
+ * parameters:
+ * genExpr (expr): the type 1 generating function W1(q, Q, t).
+ * oldCoordVars (list): list of old coordinate symbols [q_1, ..., q_n].
+ * oldMomentaVars (list): list of old momenta symbols [p_1, ..., p_n].
+ * newCoordVars (list): list of new coordinate symbols [Q_1, ..., Q_n].
+ * newMomentaVars (list): list of new momenta symbols [P_1, ..., P_n].
+ * t (symbol): time variable.
+ * return: a list [eqs_p, eqs_P, dW1_dt] where
+ *         eqs_p is the list of equations p_i = dW1/dq_i,
+ *         eqs_P is the list of equations P_i = -dW1/dQ_i,
+ *         dW1_dt is the expression dW1/dt.
+ * ============================================================================ */
+can_transf_type1(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t) := block(
+    [n, W1, eqs_p, eqs_P, dW1_dt],
+
+    n: length(oldCoordVars),
+    W1: genExpr,
+
+    /* old momenta: p_i = dW1/dq_i */
+    eqs_p: makelist(oldMomentaVars[i] = diff(W1, oldCoordVars[i]), i, 1, n),
+
+    /* new momenta: P_i = -dW1/dQ_i */
+    eqs_P: makelist(newMomentaVars[i] = -diff(W1, newCoordVars[i]), i, 1, n),
+
+    /* time-dependent contribution to the new hamiltonian: K = H + dW1/dt */
+    dW1_dt: diff(W1, t),
+
+    return([eqs_p, eqs_P, dW1_dt])
+)$
+
+
+/* ============================================================================
+ * function: can_transf_type2
+ * description: applies the type 2 generating function expression to a proposed
+ * W2(q, P, t), returning the old momenta as functions of (q, P, t), the new
+ * coordinates as functions of (q, P, t), and the partial time derivative of W2.
+ * the caller decides how to use the resulting equations (invert, substitute
+ * into a hamiltonian, etc.).
+ * parameters:
+ * genExpr (expr): the type 2 generating function W2(q, P, t).
+ * oldCoordVars (list): list of old coordinate symbols [q_1, ..., q_n].
+ * oldMomentaVars (list): list of old momenta symbols [p_1, ..., p_n].
+ * newCoordVars (list): list of new coordinate symbols [Q_1, ..., Q_n].
+ * newMomentaVars (list): list of new momenta symbols [P_1, ..., P_n].
+ * t (symbol): time variable.
+ * return: a list [eqs_p, eqs_Q, dW2_dt] where
+ *         eqs_p is the list of equations p_i = dW2/dq_i,
+ *         eqs_Q is the list of equations Q_i = dW2/dP_i,
+ *         dW2_dt is the expression dW2/dt.
+ * ============================================================================ */
+can_transf_type2(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t) := block(
+    [n, W2, eqs_p, eqs_Q, dW2_dt],
+
+    n: length(oldCoordVars),
+    W2: genExpr,
+
+    /* old momenta: p_i = dW2/dq_i */
+    eqs_p: makelist(oldMomentaVars[i] = diff(W2, oldCoordVars[i]), i, 1, n),
+
+    /* new coordinates: Q_i = dW2/dP_i */
+    eqs_Q: makelist(newCoordVars[i] = diff(W2, newMomentaVars[i]), i, 1, n),
+
+    /* time-dependent contribution to the new hamiltonian: K = H + dW2/dt */
+    dW2_dt: diff(W2, t),
+
+    return([eqs_p, eqs_Q, dW2_dt])
+)$
+
+
+/* 
+    definicao da transformacao: hp = h - n_o*t
+
+    funcao geratriz do tipo 2 => W2(q,P,t) = q*P 
+*/
+kill(W2, result, eqs_p, eqs_Q, dW2_dt)$
+
+W2: l*Lp + g*Gp + (h*n_o*t)*Hp$
+
+result: can_transf_type2(
+    W2,
+    [l, g, h],           /* old coordinates */
+    [L, G, H],           /* old momenta */
+    [lp, gp, hp],        /* new coordinates */
+    [Lp, Gp, Hp],        /* new momenta */
+    t
+)$
+
+eqs_p: result[1];   
+eqs_Q: result[2];   
+dW2_dt: result[3];
+
+/*
+    observacao pratica: para transformacoes de ponto (com ou sem deriva
+    temporal linear), a saida vem naturalmente explicita, ja que
+    Q_i = dW2/dP_i resulta em uma expressao fechada em q e t. no entanto,
+    para W2 mais gerais (evolucoes temporais finitas nao triviais), as
+    equacoes p_i = dW2/dq_i vem como equacoes implicitas em q dado (P, p),
+    e resolve-las simbolicamente pode ser pesado ou impossivel em forma
+    fechada. na pratica de mecanica celeste, esse tipo de TC e raro:
+    trabalha-se sempre com Mathieu (ponto) ou com series de Lie
+    (infinitesimais iteradas). esta funcao lida bem com os dois casos
+    praticos e, para os patologicos, devolve as equacoes e passa a bola
+    para o usuario.
+*/
+
+/* ============================================================================
+ * function: can_transf_type3
+ * description: applies the type 3 generating function expressions to a proposed
+ * W3(p, Q, t), returning the old coordinates as functions of (p, Q, t), the new
+ * momenta as functions of (p, Q, t), and the partial time derivative of W3.
+ * the caller decides how to use the resulting equations (invert, substitute
+ * into a hamiltonian, etc.).
+ * parameters:
+ * genExpr (expr): the type 3 generating function W3(p, Q, t).
+ * oldCoordVars (list): list of old coordinate symbols [q_1, ..., q_n].
+ * oldMomentaVars (list): list of old momenta symbols [p_1, ..., p_n].
+ * newCoordVars (list): list of new coordinate symbols [Q_1, ..., Q_n].
+ * newMomentaVars (list): list of new momenta symbols [P_1, ..., P_n].
+ * t (symbol): time variable.
+ * return: a list [eqs_q, eqs_P, dW3_dt] where
+ *         eqs_q is the list of equations q_i = -dW3/dp_i,
+ *         eqs_P is the list of equations P_i = -dW3/dQ_i,
+ *         dW3_dt is the expression dW3/dt.
+ * ============================================================================ */
+can_transf_type3(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t) := block(
+    [n, W3, eqs_q, eqs_P, dW3_dt],
+
+    n: length(oldCoordVars),
+    W3: genExpr,
+
+    /* old coordinates: q_i = -dW3/dp_i */
+    eqs_q: makelist(oldCoordVars[i] = -diff(W3, oldMomentaVars[i]), i, 1, n),
+
+    /* new momenta: P_i = -dW3/dQ_i */
+    eqs_P: makelist(newMomentaVars[i] = -diff(W3, newCoordVars[i]), i, 1, n),
+
+    /* time-dependent contribution to the new hamiltonian: K = H + dW3/dt */
+    dW3_dt: diff(W3, t),
+
+    return([eqs_q, eqs_P, dW3_dt])
+)$
+
+
+/* ============================================================================
+ * function: can_transf_type4
+ * description: applies the type 4 generating function expressions to a proposed
+ * W4(p, P, t), returning the old coordinates as functions of (p, P, t), the new
+ * coordinates as functions of (p, P, t), and the partial time derivative of W4.
+ * the caller decides how to use the resulting equations (invert, substitute
+ * into a hamiltonian, etc.).
+ * parameters:
+ * genExpr (expr): the type 4 generating function W4(p, P, t).
+ * oldCoordVars (list): list of old coordinate symbols [q_1, ..., q_n].
+ * oldMomentaVars (list): list of old momenta symbols [p_1, ..., p_n].
+ * newCoordVars (list): list of new coordinate symbols [Q_1, ..., Q_n].
+ * newMomentaVars (list): list of new momenta symbols [P_1, ..., P_n].
+ * t (symbol): time variable.
+ * return: a list [eqs_q, eqs_Q, dW4_dt] where
+ *         eqs_q is the list of equations q_i = -dW4/dp_i,
+ *         eqs_Q is the list of equations Q_i = dW4/dP_i,
+ *         dW4_dt is the expression dW4/dt.
+ * ============================================================================ */
+can_transf_type4(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t) := block(
+    [n, W4, eqs_q, eqs_Q, dW4_dt],
+
+    n: length(oldCoordVars),
+    W4: genExpr,
+
+    /* old coordinates: q_i = -dW4/dp_i */
+    eqs_q: makelist(oldCoordVars[i] = -diff(W4, oldMomentaVars[i]), i, 1, n),
+
+    /* new coordinates: Q_i = dW4/dP_i */
+    eqs_Q: makelist(newCoordVars[i] = diff(W4, newMomentaVars[i]), i, 1, n),
+
+    /* time-dependent contribution to the new hamiltonian: K = H + dW4/dt */
+    dW4_dt: diff(W4, t),
+
+    return([eqs_q, eqs_Q, dW4_dt])
+)$
+
+/* ============================================================================
+ * function: canonical_transformation
+ * description: dispatcher for canonical transformations via generating
+ * functions. routes to the appropriate can_transf_type1..4 based on the
+ * type argument.
+ * parameters:
+ * genExpr (expr): the generating function W(., ., t) of the specified type.
+ * type (int): type of the generating function (1, 2, 3, or 4).
+ * oldCoordVars (list): list of old coordinate symbols [q_1, ..., q_n].
+ * oldMomentaVars (list): list of old momenta symbols [p_1, ..., p_n].
+ * newCoordVars (list): list of new coordinate symbols [Q_1, ..., Q_n].
+ * newMomentaVars (list): list of new momenta symbols [P_1, ..., P_n].
+ * t (symbol): time variable.
+ * return: the list returned by the corresponding can_transf_typeN function.
+ * ============================================================================ */
+canonical_transformation(genExpr, type, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t) := block(
+    if type = 1 then
+        return(can_transf_type1(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t))
+    elseif type = 2 then
+        return(can_transf_type2(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t))
+    elseif type = 3 then
+        return(can_transf_type3(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t))
+    elseif type = 4 then
+        return(can_transf_type4(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomentaVars, t))
+    else
+        error("canonical_transformation: type must be 1, 2, 3, or 4. Got:", type)
+)$
+
+/* turns confirmation back to normal */
+suppress_trace_warnings: false$
