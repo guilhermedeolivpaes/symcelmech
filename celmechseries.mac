@@ -347,40 +347,6 @@ truncate_closed_form(expr, max_ord) := block(
 )$
 
 /* ============================================================================
- FUNCTION: chop_series
- Description:
- a precision filter used to control expression swell in high order series 
- expansions by removing terms smaller than a specified tolerance.
-
- Parameters:
- expr: the symbolic series or expression to be filtered.
- tol: the numerical threshold for truncation.
- ============================================================================ */
-chop_series(expr, tol) := block(
-    [temp: expr, c],
-    if mapatom(expr) then (
-        if numberp(expr) and abs(expr) < tol then return(0) else return(expr)
-    ),
-    
-    if op(expr) = "+" then (
-        temp: 0,
-        for termo in args(expr) do (
-            c: coeff_of_term(termo),
-            /* it only filters if it is a comparable number */
-            if numberp(c) then (
-                if abs(c) > tol then temp: temp + termo
-            ) else (
-                temp: temp + termo /* keep going if you cannot determine the number */
-            )
-        )
-    ) else (
-        c: coeff_of_term(expr),
-        if numberp(c) and abs(c) < tol then temp: 0
-    ),
-    return(temp)
-)$
-
-/* ============================================================================
  FUNCTION: shows_available_functions
  Description:prints the list of available functions in this module.
  Parameters: none

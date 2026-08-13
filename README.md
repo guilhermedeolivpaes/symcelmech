@@ -85,12 +85,16 @@ batch("rtest_symcelmech.mac", test)$
 | Module | Description |
 |---|---|
 | `lietransformations.mac` | Core Hori-Deprit solver (`solve_hori_deprit_recurrence`) and Lie series corrections (`apply_lie_corrections`) |
-| `analyticalfunctions.mac` | Poisson bracket engines (series and closed-form), generating function quadrature, trigonometric expansion tools, elimination of the parallax |
-| `derivepotential.mac` | Perturbing potential derivation: zonal, tesseral, third-body, SRP, and triaxial ellipsoid harmonics |
+| `poissonbracket.mac` | Poisson bracket engines (series and closed-form) |
+| `canonicalsetup.mac` | Canonical dependency setup (`setup_canonical_dependencies`, extended pairs) |
+| `keplerkinematics.mac` | Exact anomaly relations (f, E, M), conic expressions, jacobians, and `celmec_trigexpand` |
+| `perturbationtools.mac` | Generating function quadrature, elimination of the parallax, potential preparation for averaging |
+| `potentialmodels.mac` | Perturbing potential derivation: zonal, tesseral, third-body, SRP, and triaxial ellipsoid harmonics |
 | `average.mac` | Secular/periodic separation, Hansen coefficient computation, orbital averaging |
 | `celmechseries.mac` | Elliptic expansion series and eccentricity truncation tools |
-| `algebraicutils.mac` | Memoization, expression sanitization, coordinate substitution rules |
-| `planetaryequations.mac` | Lagrange, Gauss, and Hamilton equations; Delaunay-Poincare transformations |
+| `postprocessing.mac` | Memoization, expression sanitization, deatomization, Julia export |
+| `planetaryequations.mac` | Lagrange planetary equations (classical and non-singular) |
+| `hamiltoniansystems.mac` | Hamilton equations and canonical transformations (Delaunay-Poincare, type 1-4) |
 | `astrodata.mac` | Physical and orbital constants for supported celestial bodies |
 
 ### Dependency Graph
@@ -195,16 +199,17 @@ eqs: lagrange_planetary_equations(R_pot, a, e, i, h, g, M, n)$
 
 - **Short-period generating function for third-body terms.** Requesting the
   short-period generating function of a third-body perturbation during the
-  elimination of the satellite true anomaly f leads to symbolic expressions
-  whose conic denominators (1 + e cos f) raised to high powers cause the
+  elimination of the satellite true anomaly `f` leads to symbolic expressions
+  whose conic denominators `(1 + e cos f)` raised to high powers cause the
   computer-algebra memory to exhaust during the order-two Poisson brackets and
-  the generating-function quadrature. In practice the short-period modulation
-  of the third-body potential in f has negligible amplitude and is rarely
-  propagated, so the recommended usage is to pass the periodic part as zero and
-  keep only the secular mean (obtained exactly through either averaging route).
-  The secular dynamics, which dominate the long-term evolution, are unaffected.
-  Note that with a zero periodic part the mean-to-osculating reconstruction will
-  not recover the third-body short-period correction.
+  the generating-function quadrature. In the hierarchical regime `r_3 >> r`, the
+  short-period modulation of the third-body potential in `f` scales with `r/r_3`
+  and is therefore small, and it is rarely propagated in practice, so the
+  recommended usage is to pass the periodic part as zero and keep only the
+  secular mean (obtained exactly through either averaging route). The secular
+  dynamics, which dominate the long-term evolution, are unaffected. Note that
+  with a zero periodic part the mean-to-osculating reconstruction will not
+  recover the third-body short-period correction.
 
 - **Averaging routes cover order two.** The eccentric-anomaly and Hansen routes
   are applied as a pre-processing step feeding the Hori-Deprit solver as a

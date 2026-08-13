@@ -6,6 +6,8 @@ redefine_warn: false$
 file_search_maxima: cons(pathname_directory(load_pathname), file_search_maxima)$
 
 load("postprocessing.mac")$
+load("keplerkinematics.mac")$
+load("celmechseries.mac")$
 
 kill(a, e, i, f, l, g, h, L, G, H)$
 

@@ -526,6 +526,14 @@ derive_srp_potential(r, a, e, i, f, g, h, muSun, beta, rSun, aSun, eSun, iSun, f
  *
  * usage example:
  *   estimate_harmonics_triaxial(399, 392, 380, 390, 4);
+ *
+ * note:
+ *   this function returns the tesseral/sectorial coefficients C_{n,m} directly.
+ *   for the zonal terms (m = 0), recall that J_n = -C_{n,0}; in particular,
+ *   C_{2,0} = (2 c^2 - a^2 - b^2) / (10 R^2), so that
+ *   J_2 = -C_{2,0} = (a^2 + b^2 - 2 c^2) / (10 R^2), which is positive for an
+ *   oblate body (c < a, b). convert the m = 0 entries to J_n accordingly before
+ *   feeding them to routines that expect zonal coefficients in the J_n convention.
  * ============================================================================ */
 estimate_harmonics_triaxial(aa, bb, cc, RR, n_max) := block(
     [results, l_max, l, m, k, s, p, q, C_val, prefactor, sum_kspq,
@@ -589,23 +597,6 @@ estimate_harmonics_triaxial(aa, bb, cc, RR, n_max) := block(
     ),
 
     return(results)
-)$
-
-/* ============================================================================
- * function: print_harmonics
- * ============================================================================
- * description: pretty-prints a list of harmonic coefficients.
- *
- * parameters:
- *   harm_list: output of estimate_harmonics_triaxial or the recursive version
- * ============================================================================ */
-print_harmonics(harm_list) := block(
-    [entry],
-    printf(true, "~%~4a ~4a ~20a~%", "n", "m", "C_nm"),
-    printf(true, "~a~%", smake(30, "-")),
-    for entry in harm_list do (
-        printf(true, "~4d ~4d ~20,12e~%", entry[1], entry[2], float(entry[3]))
-    )
 )$
 
 /* ============================================================================
