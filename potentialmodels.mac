@@ -410,8 +410,7 @@ get_general_third_body_factors(n, muPert, rPert, fPert, omegaPert, OmegaPert, iP
 derive_general_third_body(orderEcc, n, mu3, r3, f3, a3, e3, i3, omega3, Omega3, r, f, a, e, i, omega, Omega) := block(
     [factors, Cfac, rFac, Pfac, U],
 
-    print("1. calculating vector geometry symbolic in f and r..."),
-
+    
     factors: get_general_third_body_factors(
         n, mu3, r3, f3, omega3, Omega3, i3,
         r, f, omega, Omega, i
@@ -423,7 +422,6 @@ derive_general_third_body(orderEcc, n, mu3, r3, f3, a3, e3, i3, omega3, Omega3, 
 
     U: -Cfac * rFac * Pfac,
 
-    print("2. process completed."),
     return(U)
 )$
 
