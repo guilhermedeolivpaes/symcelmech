@@ -264,10 +264,11 @@ Parts of the documentation, code comments, test scripts, and some code optimizat
 
 **Guilherme de Oliveira Paes**
 
-- Mathematician
-- MSc in Orbital Dynamics — National Institute for Space Research (INPE)
-- PhD candidate in Computer Science — Federal University of São Paulo
-- Contact: oliveira.guilherme1643@gmail.com / guilherme.paes@unifesp.br
+Degree in Mathematics Education — Paulista University (UNIP)
+MSc in Orbital Dynamics — National Institute for Space Research (INPE) 
+PhD candidate in Mathematics — University of Rome Tor Vergata   
+PhD candidate in Computer Science — Federal University of Sao Paulo  
+Contact: oliveira.guilherme1643@gmail.com / guilherme.paes@unifesp.br / guilherme.deoliveirapaes@students.uniroma2.eu
 
 ## Repository Structure
 
