@@ -20,7 +20,7 @@ assume(a>0, e>=0, e<1, i>=0, i<=%pi)$
  * and conjugate momenta.
  *
  * the function is completely generic and independent of the chosen set of
- * canonical variables: delaunay (l,g,h,l,g,h), poincare, whittaker,
+ * canonical variables: delaunay (l,g,h,L,G,H), poincare, whittaker,
  * or any other canonical pair (q,p).
  *
  * arguments:
@@ -35,9 +35,9 @@ assume(a>0, e>=0, e<1, i>=0, i<=%pi)$
  *          dp1/dt = -df/dq1, ..., dpn/dt = -df/dqn]
  *
  * usage examples:
- *   delaunay:  hamilton_equations(h, [l,g,h], [l,g,h], t)
- *   poincare:  hamilton_equations(h_p, [x1,x2,x3], [y1,y2,y3], t)
- *   extended:  hamilton_equations(h, [l,g,h,t], [l,g,h,tau], t)
+ *   delaunay:  hamilton_equations(h, [L,G,H], [l,g,h], t)
+ *   poincare:  hamilton_equations(h_p, [X1,X2,X3], [y1,y2,y3], t)
+ *   extended:  hamilton_equations(h, [L,G,H,T], [l,g,h,tau], t)
  *
  * reference:
  * 
@@ -64,23 +64,23 @@ hamilton_equations(F, momentaVars, coordVars, t) := block(
  * --------------------------------------------------------------------------
  *
  Description:
- * applies the canonical transformation from delaunay (l,g,h,l,g,h) to the
- * non-singular poincare variables (y1,y2,y3,x1,x2,x3), removing
+ * applies the canonical transformation from delaunay (l,g,h,L,G,H) to the
+ * non-singular poincare variables (y1,y2,y3,X1,X2,X3), removing
  * singularities at e=0 and i=0.
  *
  * the transformation is defined by:
  *
- *   x1 = l,                                y1 = l + g + h,
- *   x2 = sqrt(2) * sqrt(l-g) * cos(g+h),   y2 = -sqrt(2) * sqrt(l-g) * sin(g+h),
- *   x3 = sqrt(2) * sqrt(g-h) * cos(h),     y3 = -sqrt(2) * sqrt(g-h) * sin(h).
+ *   X1 = L,                                y1 = l + g + h,
+ *   X2 = sqrt(2) * sqrt(L-G) * cos(g+h),   y2 = -sqrt(2) * sqrt(L-G) * sin(g+h),
+ *   X3 = sqrt(2) * sqrt(G-H) * cos(h),     y3 = -sqrt(2) * sqrt(G-H) * sin(h).
  *
  * arguments:
  * expr - [symbolic expression] expression in delaunay variables
- *        (l, g, h, l, g, h).
+ *        (l, g, h, L, G, H).
  *
  * return:
  * [expression] the same expression converted to poincare variables
- *             (x1, x2, x3, y1, y2, y3).
+ *             (X1, X2, X3, y1, y2, y3).
  *
  * reference:
  * - ferraz-mello, s. (2007). canonical perturbation theories: degenerate 
@@ -92,17 +92,17 @@ hamilton_equations(F, momentaVars, coordVars, t) := block(
 delaunay_to_poincare(expr) := block(
     [subst_rules, result],
 
-    /* inverse transformation: (x,y) -> (l,g,h,l,g,h)
+    /* inverse transformation: (X,y) -> (L,G,H,l,g,h)
        solving (6.25) for delaunay variables:
        
-       l = x1
-       g = x1 - (x2^2 + y2^2)/2
-       h = x1 - (x2^2 + y2^2)/2 - (x3^2 + y3^2)/2
+       L = X1
+       G = X1 - (X2^2 + y2^2)/2
+       H = X1 - (X2^2 + y2^2)/2 - (X3^2 + y3^2)/2
        
-       g + h = atan2(-y2, x2)
-       h     = atan2(-y3, x3)
-       g     = atan2(-y2, x2) - atan2(-y3, x3)
-       l     = y1 - atan2(-y2, x2)
+       g + h = atan2(-y2, X2)
+       h     = atan2(-y3, X3)
+       g     = atan2(-y2, X2) - atan2(-y3, X3)
+       l     = y1 - atan2(-y2, X2)
     */
     subst_rules : [
         L = X1,
@@ -123,8 +123,8 @@ delaunay_to_poincare(expr) := block(
  * --------------------------------------------------------------------------
  *
  Description:
- * applies the direct transformation, from poincare (y1,y2,y3,x1,x2,x3) to
- * delaunay (l,g,h,l,g,h).
+ * applies the direct transformation, from poincare (y1,y2,y3,X1,X2,X3) to
+ * delaunay (l,g,h,L,G,H).
  *
  * arguments:
  * expr - [expression] expression in poincare variables.
@@ -142,7 +142,7 @@ delaunay_to_poincare(expr) := block(
 poincare_to_delaunay(expr) := block(
     [subst_rules, result],
 
-    /* direct transformation: (l,g,h,l,g,h) -> (x,y) according to eq. 6.25 */
+    /* direct transformation: (l,g,h,L,G,H) -> (X,y) according to eq. 6.25 */
     subst_rules : [
         X1 = L,
         X2 = sqrt(2) * sqrt(L - G) * cos(g + h),
