@@ -4,7 +4,7 @@ suppress_trace_warnings: true$
 
 load("canonicalsetup.mac")$
 
-kill(a, e, i, f, l, g, h, L, G, H)$
+/*kill(a, e, i, f, l, g, h, L, G, H)$*/
 
 /* adds restrictions on the range of values for integration and simplification. */
 
