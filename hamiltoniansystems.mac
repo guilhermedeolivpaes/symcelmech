@@ -10,26 +10,6 @@ kill(a, e, i, f, l, g, h, L, G, H)$
 
 assume(a>0, e>=0, e<1, i>=0, i<=%pi)$
 
-depends([e], [L, G])$
-depends(sin_i, [G, H])$
-depends(cos_i, [G, H])$
-
-/* d(e)/dl */
-gradef(e, L, (1 - e^2) / (L * e))$
-
-/* d(e)/dg */
-gradef(e, G, -G / (L^2 * e))$
-
-/* d(sin_i)/dg */
-gradef(sin_i, G, ( H^2) / (G^3 * sin_i))$
-/* d(sin_i)/dh */
-gradef(sin_i, H, (-H) / (G^2 * sin_i))$
-
-/* d(cos_i)/dg */
-gradef(cos_i, G, -H/(G^2))$
-/* d(cos_i)/dh */
-gradef(cos_i, H, 1/G)$
-
 /* --------------------------------------------------------------------------
  FUNCTION: hamilton_equations(f, momentavars, coordvars, t)
  * --------------------------------------------------------------------------
@@ -251,42 +231,6 @@ can_transf_type2(genExpr, oldCoordVars, oldMomentaVars, newCoordVars, newMomenta
     return([eqs_p, eqs_Q, dW2_dt])
 )$
 
-
-/* 
-    definicao da transformacao: hp = h - n_o*t
-
-    funcao geratriz do tipo 2 => W2(q,P,t) = q*P 
-*/
-kill(W2, result, eqs_p, eqs_Q, dW2_dt)$
-
-W2: l*Lp + g*Gp + (h*n_o*t)*Hp$
-
-result: can_transf_type2(
-    W2,
-    [l, g, h],           /* old coordinates */
-    [L, G, H],           /* old momenta */
-    [lp, gp, hp],        /* new coordinates */
-    [Lp, Gp, Hp],        /* new momenta */
-    t
-)$
-
-eqs_p: result[1];   
-eqs_Q: result[2];   
-dW2_dt: result[3];
-
-/*
-    observacao pratica: para transformacoes de ponto (com ou sem deriva
-    temporal linear), a saida vem naturalmente explicita, ja que
-    Q_i = dW2/dP_i resulta em uma expressao fechada em q e t. no entanto,
-    para W2 mais gerais (evolucoes temporais finitas nao triviais), as
-    equacoes p_i = dW2/dq_i vem como equacoes implicitas em q dado (P, p),
-    e resolve-las simbolicamente pode ser pesado ou impossivel em forma
-    fechada. na pratica de mecanica celeste, esse tipo de TC e raro:
-    trabalha-se sempre com Mathieu (ponto) ou com series de Lie
-    (infinitesimais iteradas). esta funcao lida bem com os dois casos
-    praticos e, para os patologicos, devolve as equacoes e passa a bola
-    para o usuario.
-*/
 
 /* ============================================================================
  * function: can_transf_type3
