@@ -14,7 +14,7 @@ load("keplerkinematics.mac")$ /* for celmec trigexpand */
 load("celmechseries.mac")$
 
 /* loads the vect package for gradient jacobian calculations */
-load("vect")$
+/* load("vect")$ */
 
 /* loads orthopoly for pnm legendre p with 3 arguments */
 load("orthopoly")$
