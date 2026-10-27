@@ -129,7 +129,9 @@ subst_for_julia(name_string) := block(
             g_o = g_sun,
             h_o = h_sun,
             eta_o = eta_sun,
+            r_o = r_sun,
             lambda_o = lambda_sun,
+            f_o = f_sun,
             n_o = sqrt(mu_sun/(a_sun^3))
         ])
     ) elseif name_up = "DELTOKEP" then (
