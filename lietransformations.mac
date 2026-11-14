@@ -102,11 +102,13 @@ compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
  * generating functions of the system up to an arbitrary order.
  *
  * Integration Architectures (Dual-Track):
- * 1. Closed-Form (closed_form = true): Performs exact integration in the true 
- * anomaly domain by substituting the orbit equation. It natively incorporates 
- * Deprit's Parallax Elimination by appending the Equation of the Center 
- * (f - l) to the first-order generating function (S1), effectively 
- * shielding the system from singularities at e = 0.
+ * 1. Closed-Form (closed_form = true): Operates without eccentricity series
+ * expansion by substituting the exact conic radius r(e, a, f) (with unit
+ * Jacobian) via prepare_potential_closedform, separating secular and periodic
+ * parts with map_average, and integrating periodic terms over 'avg_var'
+ * via generating_function_quadrature. Pre-processed inputs (e.g., after
+ * parallax elimination or Jacobian weighting) can be supplied as [sec, per]
+ * sub-lists in f_input_list.
  * 2. Series Expansion (closed_form = false): Applies standard orbital averaging 
  * theory in Delaunay variables (averaging over mean anomaly 'l'). Ideal for 
  * handling pre-processed external perturbations, such as Third-Body 
@@ -137,9 +139,9 @@ compute_B(nn, kk, vars_list, max_order_s, closed_form, order_trunc_e) := block(
  * - Employs aggressive memory management (Garbage Collection via 'gc()' and 
  * 'kill(labels)') to prevent Lisp Heap exhaustion during the expansion of 
  * complex symbolic trees in higher orders (>= 2).
- * - In Closed-Form (Order 1), the function automatically restores time-geometry 
- * canonicity by introducing the Equation of the Center (f - l) into S1, 
- * consistent with classical literature (Deprit, 1981).
+ * - In Closed-Form mode, Poisson brackets use the closed-form bracket engine
+ * (setup_pb_cache(vars_list, true)), and terms already free of 'r' bypass
+ * radial substitution in prepare_potential_closedform.
  * - Designed for "Cascading Transformations": the output of one call can be 
  * seamlessly injected into another to perform successive averages (e.g., 
  * eliminating 'f', then 'f_3', then 'h').
