@@ -171,15 +171,7 @@ pb_closed_form(A, B, Vars) := block(
     /* 5. the factored master equation */
     PB : ratexpand( 
         /* block l l */
-        (Al*BL - AL*Bl)
-        + da_dL * (Al*Ba - Aa*Bl)
-        + de_dL * (Al*Be - Ae*Bl)
-        + deta_dL * (Al*Beta - Aeta*Bl)
-        + dr_dL * (Al*Br - Ar*Bl)
-        + df_dL * (Al*Bf - Af*Bl)
-        + dr_dl * (Ar*BL - AL*Br)
-        + df_dl * (Af*BL - AL*Bf)
-        + C_rf * (Ar*Bf - Af*Br) 
+        C_rf * (Ar*Bf - Af*Br) 
         + C_ra * (Ar*Ba - Aa*Br) 
         + C_re * (Ar*Be - Ae*Br) 
         + C_reta * (Ar*Beta - Aeta*Br) 
@@ -199,6 +191,22 @@ pb_closed_form(A, B, Vars) := block(
         + (Ah*BH - AH*Bh) 
         + C_iH * (Ah*Bi - Ai*Bh)
     ),
+
+    if (Al # 0 or Bl # 0) then
+        PB : PB + ratexpand(
+            (Al*BL - AL*Bl)
+            + da_dL * (Al*Ba - Aa*Bl)
+            + de_dL * (Al*Be - Ae*Bl)
+            + deta_dL * (Al*Beta - Aeta*Bl)
+            + dr_dL * (Al*Br - Ar*Bl)
+            + df_dL * (Al*Bf - Af*Bl)
+        ),
+
+    if (AL # 0 or BL # 0) then
+        PB : PB + ratexpand(
+            dr_dl * (Ar*BL - AL*Br)
+            + df_dl * (Af*BL - AL*Bf)
+        ),
 
     if extended then block(
         [Atau, AT, Btau, BT, Al3, Bl3, Ath, Bth,
