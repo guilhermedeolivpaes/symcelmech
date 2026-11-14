@@ -104,8 +104,8 @@ pb_series(A, B, Vars) := block(
 pb_closed_form(A, B, Vars) := block(
     [
         PB: 0, 
-        Ar, Af, Aa, Ae, Aeta, Ai, Ag, Ah, Al, AL, AG, AH,
-        Br, Bf, Ba, Be, Beta, Bi, Bg, Bh, Bl, BL, BG, BH,
+        Ar, Af, Aa, Ae, Aeta, Ai, Ag, Ah, Al: 0, AL: 0, AG, AH,
+        Br, Bf, Ba, Be, Beta, Bi, Bg, Bh, Bl: 0, BL: 0, BG, BH,
         df_dl, dr_dl, dr_dL, dr_dG, df_dL, df_dG,
         da_dL, de_dL, de_dG, deta_dL, deta_dG, di_dG, di_dH,
         C_rf, C_ra, C_re, C_reta, C_fa, C_fe, C_feta,
@@ -118,11 +118,16 @@ pb_closed_form(A, B, Vars) := block(
     /* 2. explicit derivatives independent */
     Ar: diff(A, r), Af: diff(A, f), Aa: diff(A, a), Ae: diff(A, e), 
     Aeta: diff(A, eta), Ai: diff(A, i) + diff(A, sin_i)*cos_i - diff(A, cos_i)*sin_i,
-    Ag: diff(A, g), Ah: diff(A, h), Al: diff(A, l), AL: diff(A, L), AG: diff(A, G), AH: diff(A, H),
+    Ag: diff(A, g), Ah: diff(A, h), AG: diff(A, G), AH: diff(A, H),
     
     Br: diff(B, r), Bf: diff(B, f), Ba: diff(B, a), Be: diff(B, e), 
     Beta: diff(B, eta), Bi: diff(B, i) + diff(B, sin_i)*cos_i - diff(B, cos_i)*sin_i,
-    Bg: diff(B, g), Bh: diff(B, h), Bl: diff(B, l), BL: diff(B, L), BG: diff(B, G), BH: diff(B, H),
+    Bg: diff(B, g), Bh: diff(B, h), BG: diff(B, G), BH: diff(B, H),
+
+    if (A = l or A = L or B = l or B = L) then (
+        Al: diff(A, l), AL: diff(A, L),
+        Bl: diff(B, l), BL: diff(B, L)
+    ),
     
     /* 3. monomial kinematics */
     /* we eliminate the binomial 1 e cos f using the orbit equation.
